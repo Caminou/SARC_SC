@@ -1,0 +1,256 @@
+---
+title: "Quality_Control_SARC_Gruel"
+output: html_document
+date: "2024-11-08"
+author: "Camino RSM"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE)
+```
+
+# INITIAL QUALITY CONTROL
+### Bad quality cell filtering of n_UMI and n_genes by 0.01 and 0.99 quantiles and MT percentage of 20%
+
+Calculate percent.mt 
+```{r load_and_mt_percent_calc}
+# Load libraries
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+
+#Load Data
+Gruel= readRDS("/home/caminors/Desktop/sc_RNAseq/Raw_seurats/Gruel.rds")
+SARC= readRDS("/home/caminors/Desktop/sc_RNAseq/Raw_seurats/SARC_demultiplexed.rds")
+DefaultAssay(Gruel)="RNA"
+DefaultAssay(SARC)="RNA"
+## calculate mt percent
+Gruel[["percent.mt"]] <- PercentageFeatureSet(Gruel, pattern = "^MT-", assay = "RNA")
+SARC[["percent.mt"]] <- PercentageFeatureSet(SARC, pattern = "^MT-", assay = "RNA")
+```
+## Plot Raw data
+```{r SARC_Gruel_raw_data_plot, fig.width=14, fig.height=10, warning=FALSE}
+library(gridExtra)
+# plotting
+# Create the individual plots
+plot1 <- ggplot(SARC@meta.data, aes(x=SARC$nCount_RNA, fill=SARC$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+plot2 <- ggplot(SARC@meta.data, aes(x=SARC$nFeature_RNA, fill=SARC$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+plot3 <- ggplot(Gruel@meta.data, aes(x=Gruel$nCount_RNA, fill=Gruel$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+plot4 <- ggplot(Gruel@meta.data, aes(x=Gruel$nFeature_RNA, fill=Gruel$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+# Arrange the plots in a 2x2 grid
+grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
+```
+
+```{r SARC_raw_data_plot,warning=FALSE, fig.width=14, fig.height=10, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+SARC@meta.data  %>% 
+  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  geom_point() + 
+  scale_colour_gradient(low = "gray90", high = "black") +
+  stat_smooth(method=lm) +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 500) +
+  geom_hline(yintercept = 300) +
+  facet_wrap(~orig.ident)
+```
+
+Determine 0.01 and 0.99 quantile outliers in Gruel dataset for nCount and nFeatures
+```{r calculate_Gruel_quantiles, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+
+# Extract metadata from Seurat object
+meta_data <- Gruel@meta.data
+
+# Calculate quantiles and classify cells
+meta_data <- meta_data %>%
+  group_by(orig.ident) %>%
+  mutate(
+    nCount_status = case_when(
+      nCount_RNA > quantile(nCount_RNA, 0.99) ~ "Upper Outlier",
+      nCount_RNA < quantile(nCount_RNA, 0.01) ~ "Lower Outlier",
+      TRUE ~ "Within Range"
+    ),
+    nFeature_status = case_when(
+      nFeature_RNA > quantile(nFeature_RNA, 0.99) ~ "Upper Outlier",
+      nFeature_RNA < quantile(nFeature_RNA, 0.01) ~ "Lower Outlier",
+      TRUE ~ "Within Range"
+    )
+  ) %>%
+  ungroup()
+
+Gruel@meta.data$nCount_status = meta_data$nCount_status
+Gruel@meta.data$nFeature_status = meta_data$nFeature_status
+table(Gruel$nCount_status)
+table(Gruel$nFeature_status)
+```
+
+```{r plot_Gruel_quantiles, fig.width=10, fig.height=10, warning=FALSE}
+# Violin plot for nCount_RNA with color coding for outliers
+Seurat::VlnPlot(Gruel, features = c("nCount_RNA"), group.by = "orig.ident", fill.by = "nCount_status", pt.size=0) +
+  geom_jitter(aes(color = Gruel@meta.data$nCount_status), size = 0.5, width = 0.2) +
+  scale_color_manual(values = c("Upper Outlier" = "red", "Lower Outlier" = "blue", "Within Range" = "black")) +
+  labs(title = "nCount_RNA Distribution by orig.ident with Outlier Highlights")
+# Violin plot for nFeature_RNA with color coding for outliers
+VlnPlot(Gruel, features = c("nFeature_RNA"), group.by = "orig.ident", pt.size = 0) +
+  geom_jitter(aes(color = Gruel@meta.data$nFeature_status), size = 0.5, width = 0.2) +
+  scale_color_manual(values = c("Upper Outlier" = "red", "Lower Outlier" = "blue", "Within Range" = "black")) +
+  labs(title = "nFeature_RNA Distribution by orig.ident with Outlier Highlights")
+
+```
+
+Plot 0.01 and 0.99 quantile outliers in SARC dataset
+```{r get_quantiles_SARC, fig.width=10, fig.height=10, warning=FALSE}
+library(dplyr)
+
+# Extract metadata from Seurat object
+meta_data <- SARC@meta.data
+
+# Calculate quantiles and classify cells
+meta_data <- meta_data %>%
+  group_by(orig.ident) %>%
+  mutate(
+    nCount_status = case_when(
+      nCount_RNA > quantile(nCount_RNA, 0.99) ~ "Upper Outlier",
+      nCount_RNA < quantile(nCount_RNA, 0.01) ~ "Lower Outlier",
+      TRUE ~ "Within Range"
+    ),
+    nFeature_status = case_when(
+      nFeature_RNA > quantile(nFeature_RNA, 0.99) ~ "Upper Outlier",
+      nFeature_RNA < quantile(nFeature_RNA, 0.01) ~ "Lower Outlier",
+      TRUE ~ "Within Range"
+    )
+  ) %>%
+  ungroup()
+
+SARC@meta.data$nCount_status = meta_data$nCount_status
+SARC@meta.data$nFeature_status = meta_data$nFeature_status
+table(SARC$nCount_status)
+table(SARC$nFeature_status)
+```
+
+```{r plot_SARC_quantiles, fig.width=10, fig.height=10, warning=FALSE}
+# Violin plot for nCount_RNA with color coding for outliers
+Seurat::VlnPlot(SARC, features = c("nCount_RNA"), group.by = "orig.ident", fill.by = "nCount_status", pt.size=0) +
+  geom_jitter(aes(color = SARC@meta.data$nCount_status), size = 0.5, width = 0.2) +
+  scale_color_manual(values = c("Upper Outlier" = "red", "Lower Outlier" = "blue", "Within Range" = "black")) +
+  labs(title = "nCount Distribution by orig.ident with Outlier Highlights")
+# Violin plot for nFeature_RNA with color coding for outliers
+VlnPlot(SARC, features = c("nFeature_RNA"), group.by = "orig.ident", pt.size = 0) +
+  geom_jitter(aes(color = SARC@meta.data$nFeature_status), size = 0.5, width = 0.2) +
+  scale_color_manual(values = c("Upper Outlier" = "red", "Lower Outlier" = "blue", "Within Range" = "black")) +
+  labs(title = "nFeature Distribution by orig.ident with Outlier Highlights")
+
+```
+
+```{r, fig.width=10, fig.width=10, fig.height=10, warning=FALSE}
+SARC@meta.data %>%
+  ggplot(aes(x = nCount_RNA, y = nFeature_RNA, color = nFeature_status)) + 
+  geom_point() + 
+  scale_colour_manual(values = c("Upper Outlier" = "red", 
+                                 "Lower Outlier" = "blue", 
+                                 "Within Range" = "grey")) + 
+  stat_smooth(method = "lm") +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = 500) +
+  geom_hline(yintercept = 300) +
+  facet_wrap(~orig.ident)
+```
+
+```{r plot_vlnplot, fig.width=14, fig.height=10, warning=FALSE}
+
+VlnPlot(Gruel, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(SARC, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident")
+```
+
+Filtering by Quantile and percent.mt <20
+```{r filter_and_plot, fig.width=14, fig.height=10, warning=FALSE}
+Gruel_f <- subset(Gruel, subset = nCount_status == "Within Range" & nFeature_RNA >300 & nFeature_status =="Within Range" & percent.mt < 20) ## setting these thresholds as they seem the best for SARCOMA dataset :) most nFeature_RNA <300 are actually not "within Range" but just in case
+SARC_f <- subset(SARC, subset = nCount_status == "Within Range" & nFeature_RNA >300 & nFeature_status =="Within Range" & percent.mt < 20)
+
+VlnPlot(Gruel_f, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(SARC_f, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by="orig.ident")
+```
+
+Recheck histograms of filtered objects
+```{r plot_SARC_Gruel_filtered, fig.width=10, fig.height=10, warning=FALSE}
+# Load the required package
+library(gridExtra)
+
+# Create the individual plots
+plot1 <- ggplot(SARC_f@meta.data, aes(x=SARC_f$nCount_RNA, fill=SARC_f$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+plot2 <- ggplot(SARC_f@meta.data, aes(x=SARC_f$nFeature_RNA, fill=SARC_f$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+plot3 <- ggplot(Gruel_f@meta.data, aes(x=Gruel_f$nCount_RNA, fill=Gruel_f$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+plot4 <- ggplot(Gruel_f@meta.data, aes(x=Gruel_f$nFeature_RNA, fill=Gruel_f$orig.ident)) +
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  ylab("Cell density") +
+  geom_vline(xintercept = 500)
+
+# Arrange the plots in a 2x2 grid
+grid.arrange(plot1, plot2, plot3, plot4, ncol = 2)
+
+
+```
+
+```{r,  fig.width=14, fig.height=14, warning=FALSE}
+SARC_f@meta.data  %>% 
+  	ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 500) +
+  	geom_hline(yintercept = 300) +
+  	facet_wrap(~orig.ident)
+```
