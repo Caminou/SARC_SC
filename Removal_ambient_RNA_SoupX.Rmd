@@ -1,0 +1,108 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+### 2) Removal of ambient RNA using SoupX
+```{r}
+
+
+# to clean up the data by identifying and correcting for RNA contamination. These methods typically rely on distinguishing the actual cell expression profiles from background noise (ambient RNA) that may arise from dead cells, empty droplets, or cross-contamination.
+
+#load libraries
+library(SoupX)
+library(Seurat)
+
+#load seurat
+Gruel_f = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/Gruel_f.rds")
+SARC_f = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f.rds")
+
+
+samples <- unique(Gruel_f$orig.ident)
+
+
+# Create SoupGroups:
+# While it is possible to run SoupX without clustering information, you will get far better results if some basic clustering is provided. Therefore, it is strongly recommended that you provide some clustering information to SoupX
+get_soup_groups <- function(sobj){
+  print("Normalizing")
+  sobj <- NormalizeData(sobj, verbose = FALSE)
+  print("Finidng Variable Features")
+  sobj <- FindVariableFeatures(object = sobj, nfeatures = 2000, verbose = FALSE, selection.method = 'vst')
+  print("Scaling")
+  sobj <- ScaleData(sobj, verbose = FALSE)
+  print("Run PCA")
+  sobj <- RunPCA(sobj, npcs = 20, verbose = FALSE)
+  print("Finding neighbours")
+  sobj <- FindNeighbors(sobj, dims = 1:20, verbose = FALSE)
+  sobj <- FindClusters(sobj, resolution = 0.5, verbose = FALSE)
+  return(sobj@meta.data[['seurat_clusters']])
+  
+}
+
+data  = get_soup_groups(Gruel_f)
+
+### Create make_soup function:
+# SoupX requires the raw_feature_bc_matrix from the CellRanger output (output with empty droplets!)
+# Since we have renamed the barcodes in the previous steps, we will need to rename the barcodes in this raw_feature_bc_matrix
+
+make_soup <- function(sobj) {
+  sample_id = unique(sobj$orig.ident) # get samples
+  all_processed_counts <- list()
+  for (sample in sample_id ){
+    print(paste0("Reading ", sample))
+    path <- paste0("/home/caminors/Desktop/sc_RNAseq/RAW_featured_bc_matrix/outs_raw/", sample)
+    raw <- Read10X(data.dir = path)
+    if (grepl("hSC26", sample)) {
+      sobj_subset = subset(sobj, orig.ident %in% c("hSC26_AdjNorm","hSC26_ddLPS"))
+      cell_names = as.data.frame(colnames(sobj_subset))
+      print(paste0("Renaming barcodes"))
+      colnames(cell_names)="cell_names"
+      split_result= strsplit(cell_names$cell_names, "_")
+      split_result <- sapply(split_result, `[`, 1)
+      cell_names$barcode <- sapply(split_result, `[`, 3)
+      raw = raw$`Gene Expression`
+      new_colnames <- cell_names$cell_names[match(colnames(raw), cell_names$barcode)]
+      colnames(raw)<- new_colnames
+      # Remove cells not present in the filtered seurat object
+      valid_cols <- !is.na(colnames(raw)) & colnames(raw) != "NA"
+      raw_clean <- raw[, valid_cols]
+      print(paste0("Seurat object contains: ", ncol(sobj_subset), "cells. Raw matrix contains", ncol(raw_clean), "cells."))
+      common_genes = intersect(rownames(raw), rownames(sobj_subset@assays$RNA))
+      raw_clean <- raw_clean[common_genes, , drop = FALSE]
+    } else {
+      sobj_subset= subset(sobj, orig.ident %in% sample)
+      print(paste0("Renaming barcodes"))
+      colnames(raw) = paste0(sample,"_", colnames(raw))
+      # Remove cells not present in the filtered seurat object
+      valid_cols <- colnames(sobj_subset)
+      raw_clean <- raw[, valid_cols]
+      print(paste0("Seurat object contains: ", ncol(sobj_subset), " cells. Raw matrix contains: ", ncol(raw_clean), " cells."))
+      common_genes = intersect(rownames(raw), rownames(sobj_subset@assays$RNA))
+      raw_clean <- raw_clean[common_genes, , drop = FALSE]
+      
+      print(paste0("Seurat object contains: ", nrow(sobj_subset), " genes. Raw matrix contains: ", nrow(raw_clean), " genes."))
+    }
+  sc = SoupChannel(raw_clean,sobj_subset@assays$RNA[[,1]])
+  sc = setClusters(sc,sobj_subset$soup_group)
+  sc = autoEstCont(sc, doPlot=FALSE)
+  out = adjustCounts(sc, roundToInt = TRUE)
+  #optional keep original counts
+  all_processed_counts[[sample]] <- out
+  sobj[[paste0("processed_counts_", sample)]] <- CreateAssayObject(counts = out)
+  }
+  return(sobj)
+}
+
+Gruel_f = make_soup(Gruel_f)
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
