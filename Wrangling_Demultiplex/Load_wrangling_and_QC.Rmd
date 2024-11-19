@@ -1,0 +1,63 @@
+---
+title: "load_samples"
+author: "Camino RSM"
+date: "2024-11-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks.
+
+```{r cars}
+directory= "/home/caminors/Desktop/sc_RNAseq"
+```
+
+### GRUEL ET AL. ###
+## Create list of Raw data samples (Gruel et al., 2024) and:
+  - Rename cell barcode to biosample_barcode
+  - Rename Dimnames from layer@counts to cell_barcode and gene_symbol
+
+```{r, echo=FALSE}
+files <- list.dirs(directory, full.names = TRUE)
+files <- files[-1]
+gsm_files <- files[grep("^GSM", basename(files))]
+# Initialize an empty list to store Seurat objects
+seurat_object <- list()
+# Loop through each folder to read in the 10X data and rename cell barcodes
+for (folder in gsm_files) {
+  # Extract the folder name (e.g., "GSM223" from the path)
+  folder_name <- sub("^/mnt/c/Users/caminorsm/Desktop/outs/", "", folder)
+  print(paste0("Reading folder: ", folder))
+  
+  # Read 10X data from the folder
+  data <- Seurat::Read10X(folder)
+  # Modify cell barcodes by adding the folder name as a prefix
+  colnames(data) <- paste0(folder_name, "_", colnames(data))
+  seurat = Seurat::CreateSeuratObject(data, project = folder_name)
+  seurat@assays[["RNA"]]@layers[["counts"]]@Dimnames <- list(rownames(data), colnames(data))
+  # Store the modified matrix in the list with the folder name as the key
+  seurat_object[[folder_name]] <- seurat
+}
+#save list
+saveRDS(seurat_object, "./Gruel_list.rds")
+```
+
+# Create Seurat object
+```{r}
+seurat_object = readRDS("/home/caminors/Desktop/sc_RNAseq/Gruel_list.rds")
+# merge all seurats into a single seurat
+Gruel <- seurat_object[[1]]
+# Loop through the rest of the Seurat objects and merge them into 'Gruel'
+for (i in 2:length(seurat_object)) {
+  print(paste0("Adding: ", names(seurat_object)[[i]]))
+  Gruel <- merge(Gruel, y = seurat_object[[i]])
+}
+#Remove .SeuratProjects from the count.names
+names(Gruel@assays$RNA@layers) = gsub("\\.SeuratProject", "", names(Gruel@assays$RNA@layers))
+saveRDS(Gruel, "./Gruel.rds")
+```
