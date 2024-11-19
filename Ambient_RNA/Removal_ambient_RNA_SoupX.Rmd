@@ -10,55 +10,42 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 ### 2) Removal of ambient RNA using SoupX
 ```{r}
 
-
 # to clean up the data by identifying and correcting for RNA contamination. These methods typically rely on distinguishing the actual cell expression profiles from background noise (ambient RNA) that may arise from dead cells, empty droplets, or cross-contamination.
-
 #load libraries
 library(SoupX)
 library(Seurat)
-
 #load seurat
-Gruel_f = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/Gruel_f.rds")
-SARC_f = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f.rds")
 
 
-samples <- unique(Gruel_f$orig.ident)
+library(future)
 
+# Set higher limit
+options(future.globals.maxSize = 2 * 1024^3)
 
-# Create SoupGroups:
-# While it is possible to run SoupX without clustering information, you will get far better results if some basic clustering is provided. Therefore, it is strongly recommended that you provide some clustering information to SoupX
-get_soup_groups <- function(sobj){
-  print("Normalizing")
-  sobj <- NormalizeData(sobj, verbose = FALSE)
-  print("Finidng Variable Features")
-  sobj <- FindVariableFeatures(object = sobj, nfeatures = 2000, verbose = FALSE, selection.method = 'vst')
-  print("Scaling")
-  sobj <- ScaleData(sobj, verbose = FALSE)
-  print("Run PCA")
-  sobj <- RunPCA(sobj, npcs = 20, verbose = FALSE)
-  print("Finding neighbours")
-  sobj <- FindNeighbors(sobj, dims = 1:20, verbose = FALSE)
-  sobj <- FindClusters(sobj, resolution = 0.5, verbose = FALSE)
-  return(sobj@meta.data[['seurat_clusters']])
-  
-}
-
-data  = get_soup_groups(Gruel_f)
 
 ### Create make_soup function:
 # SoupX requires the raw_feature_bc_matrix from the CellRanger output (output with empty droplets!)
 # Since we have renamed the barcodes in the previous steps, we will need to rename the barcodes in this raw_feature_bc_matrix
 
-make_soup <- function(sobj) {
-  sample_id = unique(sobj$orig.ident) # get samples
+make_soup <- function(SARC_f) {
+  library(dplyr)
+  sample_id = unique(SARC_f$orig.ident) # get samples
   all_processed_counts <- list()
   for (sample in sample_id ){
     print(paste0("Reading ", sample))
-    path <- paste0("/home/caminors/Desktop/sc_RNAseq/RAW_featured_bc_matrix/outs_raw/", sample)
+    path <- paste0("/mnt/c/Users/caminorsm/Desktop/SARC/raw_feature_barcode_matrix/outs_raw/", sample)
     raw <- Read10X(data.dir = path)
     if (grepl("hSC26", sample)) {
-      sobj_subset = subset(sobj, orig.ident %in% c("hSC26_AdjNorm","hSC26_ddLPS"))
-      cell_names = as.data.frame(colnames(sobj_subset))
+      SARC_f_subset = subset(SARC_f, orig.ident %in% c("hSC26_AdjNorm","hSC26_ddLPS"))
+      print(paste0("Normalizing"))
+      SARC_f_subset    <- SCTransform(SARC_f_subset, verbose = F)
+      print(paste0("DR"))
+      SARC_f_subset    <- RunPCA(SARC_f_subset, verbose = F)
+      SARC_f_subset    <- RunUMAP(SARC_f_subset, dims = 1:30, verbose = F)
+      print(paste0("Clustering"))
+      SARC_f_subset    <- FindNeighbors(SARC_f_subset, dims = 1:30, verbose = F)
+      SARC_f_subset    <- FindClusters(SARC_f_subset, verbose = T)
+      cell_names = as.data.frame(colnames(SARC_f_subset))
       print(paste0("Renaming barcodes"))
       colnames(cell_names)="cell_names"
       split_result= strsplit(cell_names$cell_names, "_")
@@ -70,34 +57,47 @@ make_soup <- function(sobj) {
       # Remove cells not present in the filtered seurat object
       valid_cols <- !is.na(colnames(raw)) & colnames(raw) != "NA"
       raw_clean <- raw[, valid_cols]
-      print(paste0("Seurat object contains: ", ncol(sobj_subset), "cells. Raw matrix contains", ncol(raw_clean), "cells."))
-      common_genes = intersect(rownames(raw), rownames(sobj_subset@assays$RNA))
+      print(paste0("Seurat object contains: ", ncol(SARC_f_subset), "cells. Raw matrix contains", ncol(raw_clean), "cells."))
+      common_genes = intersect(rownames(raw), rownames(SARC_f_subset@assays$RNA))
       raw_clean <- raw_clean[common_genes, , drop = FALSE]
     } else {
-      sobj_subset= subset(sobj, orig.ident %in% sample)
+      SARC_f_subset= subset(SARC_f, orig.ident %in% sample)
+      print(paste0("Normalizing"))
+      SARC_f_subset <- SCTransform(SARC_f_subset, verbose = F)
+      print(paste0("DR"))
+      SARC_f_subset <- RunPCA(SARC_f_subset, verbose = F)
+      SARC_f_subset    <- RunUMAP(SARC_f_subset, dims = 1:30, verbose = F)
+      print(paste0("Clustering"))
+      SARC_f_subset    <- FindNeighbors(SARC_f_subset, dims = 1:30, verbose = F)
+      SARC_f_subset    <- FindClusters(SARC_f_subset, verbose = T)
       print(paste0("Renaming barcodes"))
       colnames(raw) = paste0(sample,"_", colnames(raw))
       # Remove cells not present in the filtered seurat object
-      valid_cols <- colnames(sobj_subset)
+      valid_cols <- colnames(SARC_f_subset)
       raw_clean <- raw[, valid_cols]
-      print(paste0("Seurat object contains: ", ncol(sobj_subset), " cells. Raw matrix contains: ", ncol(raw_clean), " cells."))
-      common_genes = intersect(rownames(raw), rownames(sobj_subset@assays$RNA))
+      print(paste0("Seurat object contains: ", ncol(SARC_f_subset), " cells. Raw matrix contains: ", ncol(raw_clean), " cells."))
+      common_genes = intersect(rownames(raw), rownames(SARC_f_subset@assays$RNA))
       raw_clean <- raw_clean[common_genes, , drop = FALSE]
-      
-      print(paste0("Seurat object contains: ", nrow(sobj_subset), " genes. Raw matrix contains: ", nrow(raw_clean), " genes."))
+      print(paste0("Seurat object contains: ", nrow(SARC_f_subset), " genes. Raw matrix contains: ", nrow(raw_clean), " genes."))
     }
-  sc = SoupChannel(raw_clean,sobj_subset@assays$RNA[[,1]])
-  sc = setClusters(sc,sobj_subset$soup_group)
-  sc = autoEstCont(sc, doPlot=FALSE)
+    # create soup channel by supplying the table of droplets (raw_feature_bc_matrix) and table of counts (filtered_feature_bc_matrix)
+    meta    <- SARC_f_subset@meta.data
+    umap    <- SARC_f_subset@reductions$umap@cell.embeddings
+  sc = SoupChannel(raw_clean,SARC_f_subset@assays[["RNA"]]@layers[[1]])
+  sc = setClusters(sc, setNames(meta$seurat_clusters, rownames(meta)))
+  sc <- setDR(sc,umap)
+  sc = autoEstCont(sc)
+  head(sc$soupProfile[order(sc$soupProfile$est, decreasing = T), ], n = 20)
   out = adjustCounts(sc, roundToInt = TRUE)
   #optional keep original counts
   all_processed_counts[[sample]] <- out
-  sobj[[paste0("processed_counts_", sample)]] <- CreateAssayObject(counts = out)
+  SARC_f[[paste0("processed_counts_", sample)]] <- CreateAssayObject(counts = out)
   }
-  return(sobj)
+  return(SARC_f)
+  
 }
 
-Gruel_f = make_soup(Gruel_f)
+SARC_f = make_soup(SARC_f)
 
 ```
 
