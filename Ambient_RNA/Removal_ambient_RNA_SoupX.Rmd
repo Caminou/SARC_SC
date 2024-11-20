@@ -129,12 +129,12 @@ Gruel_f_list = SplitObject(Gruel_f, split.by = "orig.ident")
 Gruel_f_list = lapply(Gruel_f_list, get_soup_groups)
 Gruel_f_list = lapply(Gruel_f_list, make_soup)
 lapply(Gruel_f_list, check_data)
-saveRDS(Gruel_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/SGruel_f_list_original_and_SoupX.rds")
+saveRDS(Gruel_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/Gruel_f_list_original_and_SoupX.rds")
 
 ```
 
 ```{r}
-Gruel_f_list = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f_list_original_and_SoupX.rds")
+Gruel_f_list = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/Gruel_f_list_original_and_SoupX.rds")
 #remove original.counts assay
 
 for (i in seq_along(Gruel_f_list)) {
@@ -156,5 +156,5 @@ for (i in seq_along(Gruel_f_list)) {
   }
 }
 # Save seurat without original counts (memory wise!)
-saveRDS(Gruel_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f_list_SoupX.rds")
+saveRDS(Gruel_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/Gruel_f_list_SoupX.rds")
 ```
