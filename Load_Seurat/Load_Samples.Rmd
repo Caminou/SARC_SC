@@ -1,0 +1,155 @@
+---
+title: "load_samples"
+author: "Camino RSM"
+date: "2024-11-06"
+output: html_document
+---
+
+```{r cars}
+directory= "/home/caminors/Desktop/sc_RNAseq"
+```
+
+### GRUEL ET AL. ###
+## Create list of Raw data samples (Gruel et al., 2024) and:
+- Rename cell barcode to biosample_barcode
+- Rename Dimnames from layer@counts to cell_barcode and gene_symbol
+
+```{r, echo=FALSE}
+files <- list.dirs(directory, full.names = TRUE)
+files <- files[-1]
+gsm_files <- files[grep("^GSM", basename(files))]
+# Initialize an empty list to store Seurat objects
+seurat_object <- list()
+# Loop through each folder to read in the 10X data and rename cell barcodes
+for (folder in gsm_files) {
+  # Extract the folder name (e.g., "GSM223" from the path)
+  folder_name <- sub("^/mnt/c/Users/caminorsm/Desktop/outs/", "", folder)
+  print(paste0("Reading folder: ", folder))
+  # Read 10X data from the folder
+  data <- Seurat::Read10X(folder)
+  # Modify cell barcodes by adding the folder name as a prefix
+  colnames(data) <- paste0(folder_name, "_", colnames(data))
+  seurat = Seurat::CreateSeuratObject(data, project = folder_name)
+  seurat@assays[["RNA"]]@layers[["counts"]]@Dimnames <- list(rownames(data), colnames(data))
+  # Store the modified matrix in the list with the folder name as the key
+  seurat_object[[folder_name]] <- seurat
+}
+#save list
+saveRDS(seurat_object, "./Gruel_list.rds")
+```
+
+# Create Seurat object
+```{r}
+seurat_object = readRDS("/home/caminors/Desktop/sc_RNAseq/Gruel_list.rds")
+# merge all seurats into a single seurat
+Gruel <- seurat_object[[1]]
+# Loop through the rest of the Seurat objects and merge them into 'Gruel'
+for (i in 2:length(seurat_object)) {
+  print(paste0("Adding: ", names(seurat_object)[[i]]))
+  Gruel <- merge(Gruel, y = seurat_object[[i]])
+}
+#Remove .SeuratProjects from the count.names
+names(Gruel@assays$RNA@layers) = gsub("\\.SeuratProject", "", names(Gruel@assays$RNA@layers))
+saveRDS(Gruel, "./Gruel.rds")
+```
+### PDSC ###
+## Load CR outputs and cellbarcode renaming
+- Rename cell barcode to biosample_barcode
+- Rename Dimnames from layer@counts to cell_barcode and gene_symbol
+```{r}
+hsc_files <- files[grep("^hSC", basename(files))]
+hsc_files= hsc_files[-1]
+for (folder in hsc_files) {
+  # Extract the folder name (e.g., "GSM223" from the path)
+  folder_name <- sub("^/mnt/c/Users/caminorsm/Desktop/outs/", "", folder)
+  print(paste0("Reading folder: ", folder))
+  
+  # Read 10X data from the folder
+  data <- Seurat::Read10X(folder)
+  # Modify cell barcodes by adding the folder name as a prefix
+  colnames(data) <- paste0(folder_name, "_", colnames(data))
+  seurat = Seurat::CreateSeuratObject(data, project = folder_name)
+  seurat@assays[["RNA"]]@layers[["counts"]]@Dimnames <- list(rownames(data), colnames(data))
+  # Store the modified matrix in the list with the folder name as the key
+  seurat_object[[folder_name]] <- seurat
+}
+saveRDS(seurat_object, "./PDSC_list.rds")
+```
+
+## Create Seurat
+```{r}
+seurat_object = readRDS("/home/caminors/Desktop/sc_RNAseq/PDSC_list.rds")
+# merge all seurats into a single seurat
+seurat_object[[1]]$orig.ident = names(seurat_object)[[1]] #rename orig.ident correctly
+PDSC <- seurat_object[[1]]
+# Loop through the rest of the Seurat objects and merge them into 'PDSC'
+for (i in 2:length(seurat_object)) {
+  seurat_object[[i]]$orig.ident = names(seurat_object)[[i]]
+  print(paste0("Adding: ", names(seurat_object)[[i]]))
+  PDSC <- merge(PDSC, y = seurat_object[[i]])
+}
+names(PDSC@assays$RNA@layers) = gsub("\\.SeuratProject", "", names(PDSC@assays$RNA@layers)) # Remove SeuratProject from layer names
+saveRDS(PDSC, "/home/caminors/Desktop/sc_RNAseq/Raw_seurats/PDSC.rds")
+```
+### hSC26 ###
+## Load CR outputs and cellbarcode renaming
+- Rename cell barcode to biosample_barcode
+- Rename Dimnames from layer@counts to cell_barcode and gene_symbol
+```{r}
+# Read 10X data from the hSC26 folder
+data <- Seurat::Read10X("/home/caminors/Desktop/sc_RNAseq/hSC26/")
+# Create RNA and HTO Assay
+hSC26 = CreateSeuratObject(counts=data$`Gene Expression`)
+hSC26[["HTO"]] = CreateAssay5Object(counts = data$`Antibody Capture`)
+hSC26@assays[["RNA"]]@layers[["counts"]]@Dimnames <- list(rownames(data$`Gene Expression`), colnames(data$`Gene Expression`))
+hSC26@assays[["HTO"]]@layers[["counts"]]@Dimnames <- list(rownames(data$`Antibody Capture`), colnames(data$`Antibody Capture`))
+# Store the modified matrix in the list with the folder name as the key
+saveRDS(hSC26, "Raw_seurats/hSC26.rds")
+```
+
+# HTO demultiplexing #
+```{r}
+library(Seurat)
+hSC26 = readRDS("/home/caminors/Desktop/sc_RNAseq/Raw_seurats/hSC26.rds")
+# Normalize RNA data with log normalization
+hSC26_n <- Seurat::NormalizeData(hSC26, assay = "RNA")
+# Find and scale variable features
+hSC26_n <- Seurat::FindVariableFeatures(hSC26_n, selection.method = "mean.var.plot")
+hSC26_n <- Seurat::ScaleData(hSC26_n, features = VariableFeatures(hSC26_n))
+# Normalize HTO data, here we use centered log-ratio (CLR) transformation
+Seurat::DefaultAssay(hSC26_n)="HTO"
+hSC26_n <- Seurat::NormalizeData(hSC26_n, assay = "HTO", normalization.method = "CLR", margin=2) # set margin=2 due to HTO has to be normalized relatively to other cells rather to the features
+hSC26_n <- Seurat::HTODemux(hSC26_n, assay = "HTO", positive.quantile = 0.95)
+# Plot the CLR-transformed HTO signal levels
+RidgePlot(hSC26_n, assay = "HTO", features = rownames(hSC26_n[["HTO"]]), ncol = 2)
+Idents(hSC26_n)="hash.ID"
+VlnPlot(hSC26_n, features = c("ddLPS","AdjNorm"))
+FeatureScatter(hSC26_n, feature1 = "ddLPS", feature2 = "AdjNorm", slot = "counts")
+```
+## Filtering doublets and negatives
+```{r}
+hSC26@meta.data = hSC26_n@meta.data
+hSC26_f = subset(hSC26, hash.ID %in% c("Doublet","Negative"),invert=T)
+hSC26_f@assays[["HTO"]]@layers[["counts"]]@Dimnames[[1]]=rownames(hSC26_f@assays$HTO)
+hSC26_f@assays[["RNA"]]@layers[["counts"]]@Dimnames[[1]]=rownames(hSC26_f@assays$RNA)
+## Add this information to orig.ident
+hSC26_f$orig.ident = "hSC26"
+hSC26_f$orig.ident = paste0(hSC26_f$orig.ident,"_", hSC26_f$hash.ID)
+# Combine orig.ident with the original cell barcode to create new cell names
+new_cell_names <- paste0(hSC26_f$orig.ident, "_", colnames(hSC26_f))
+# Update cell names in the Seurat object
+colnames(hSC26_f) <- new_cell_names
+rownames(hSC26_f@meta.data) <- new_cell_names
+hSC26_f@assays[["RNA"]]@layers[["counts"]]@Dimnames[[2]]=colnames(hSC26_f@assays$RNA)
+hSC26_f@assays[["HTO"]]@layers[["counts"]]@Dimnames[[2]]=colnames(hSC26_f@assays$HTO)
+names(hSC26_f@assays[["RNA"]]@layers) = "counts"
+```
+
+### Merge hSC26 with all PDSC and call it SARC ###
+
+```{r}
+PDSC = readRDS("/home/caminors/Desktop/sc_RNAseq/Raw_seurats/PDSC.rds")
+SARC = merge(PDSC, hSC26_f)
+names(SARC@assays$RNA@layers) = gsub("\\.1", "", names(SARC@assays$RNA@layers)) # rename layer
+saveRDS(SARC, "/home/caminors/Desktop/sc_RNAseq/Raw_seurats/SARC_demultiplexed.rds")
+```
