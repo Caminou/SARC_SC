@@ -23,6 +23,7 @@ options(future.globals.maxSize=30000*1024^2)
 get_soup_groups <- function(sobj){
   counts = GetAssayData(sobj, assay = "RNA", layer = "counts")
   sobj@assays[["RNA"]] = CreateAssayObject(counts = counts)
+  sobj@assays$RNA@key <- "rna_"
   print("Normalizing")
   sobj <- SCTransform(sobj, assay = "RNA")
   print("Run PCA")
