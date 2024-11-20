@@ -1,108 +1,160 @@
----
-title: "R Notebook"
+--
+title: "Removal_ambient_RNA_SoupX"
+author: "Camino RSM"
+date: "2024-11-20"
+
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
-
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
-
-### 2) Removal of ambient RNA using SoupX
+### 1) Get Soup groups (this is a fast creation of clusters so SoupX works better but will not be used further!)
 ```{r}
 
 # to clean up the data by identifying and correcting for RNA contamination. These methods typically rely on distinguishing the actual cell expression profiles from background noise (ambient RNA) that may arise from dead cells, empty droplets, or cross-contamination.
+
 #load libraries
 library(SoupX)
 library(Seurat)
-#load seurat
-
-
 library(future)
 
-# Set higher limit
-options(future.globals.maxSize = 2 * 1024^3)
+options(future.globals.maxSize=30000*1024^2)
 
-
-### Create make_soup function:
-# SoupX requires the raw_feature_bc_matrix from the CellRanger output (output with empty droplets!)
-# Since we have renamed the barcodes in the previous steps, we will need to rename the barcodes in this raw_feature_bc_matrix
-
-make_soup <- function(SARC_f) {
-  library(dplyr)
-  sample_id = unique(SARC_f$orig.ident) # get samples
-  all_processed_counts <- list()
-  for (sample in sample_id ){
-    print(paste0("Reading ", sample))
-    path <- paste0("/mnt/c/Users/caminorsm/Desktop/SARC/raw_feature_barcode_matrix/outs_raw/", sample)
-    raw <- Read10X(data.dir = path)
-    if (grepl("hSC26", sample)) {
-      SARC_f_subset = subset(SARC_f, orig.ident %in% c("hSC26_AdjNorm","hSC26_ddLPS"))
-      print(paste0("Normalizing"))
-      SARC_f_subset    <- SCTransform(SARC_f_subset, verbose = F)
-      print(paste0("DR"))
-      SARC_f_subset    <- RunPCA(SARC_f_subset, verbose = F)
-      SARC_f_subset    <- RunUMAP(SARC_f_subset, dims = 1:30, verbose = F)
-      print(paste0("Clustering"))
-      SARC_f_subset    <- FindNeighbors(SARC_f_subset, dims = 1:30, verbose = F)
-      SARC_f_subset    <- FindClusters(SARC_f_subset, verbose = T)
-      cell_names = as.data.frame(colnames(SARC_f_subset))
-      print(paste0("Renaming barcodes"))
-      colnames(cell_names)="cell_names"
-      split_result= strsplit(cell_names$cell_names, "_")
-      split_result <- sapply(split_result, `[`, 1)
-      cell_names$barcode <- sapply(split_result, `[`, 3)
-      raw = raw$`Gene Expression`
-      new_colnames <- cell_names$cell_names[match(colnames(raw), cell_names$barcode)]
-      colnames(raw)<- new_colnames
-      # Remove cells not present in the filtered seurat object
-      valid_cols <- !is.na(colnames(raw)) & colnames(raw) != "NA"
-      raw_clean <- raw[, valid_cols]
-      print(paste0("Seurat object contains: ", ncol(SARC_f_subset), "cells. Raw matrix contains", ncol(raw_clean), "cells."))
-      common_genes = intersect(rownames(raw), rownames(SARC_f_subset@assays$RNA))
-      raw_clean <- raw_clean[common_genes, , drop = FALSE]
-    } else {
-      SARC_f_subset= subset(SARC_f, orig.ident %in% sample)
-      print(paste0("Normalizing"))
-      SARC_f_subset <- SCTransform(SARC_f_subset, verbose = F)
-      print(paste0("DR"))
-      SARC_f_subset <- RunPCA(SARC_f_subset, verbose = F)
-      SARC_f_subset    <- RunUMAP(SARC_f_subset, dims = 1:30, verbose = F)
-      print(paste0("Clustering"))
-      SARC_f_subset    <- FindNeighbors(SARC_f_subset, dims = 1:30, verbose = F)
-      SARC_f_subset    <- FindClusters(SARC_f_subset, verbose = T)
-      print(paste0("Renaming barcodes"))
-      colnames(raw) = paste0(sample,"_", colnames(raw))
-      # Remove cells not present in the filtered seurat object
-      valid_cols <- colnames(SARC_f_subset)
-      raw_clean <- raw[, valid_cols]
-      print(paste0("Seurat object contains: ", ncol(SARC_f_subset), " cells. Raw matrix contains: ", ncol(raw_clean), " cells."))
-      common_genes = intersect(rownames(raw), rownames(SARC_f_subset@assays$RNA))
-      raw_clean <- raw_clean[common_genes, , drop = FALSE]
-      print(paste0("Seurat object contains: ", nrow(SARC_f_subset), " genes. Raw matrix contains: ", nrow(raw_clean), " genes."))
-    }
-    # create soup channel by supplying the table of droplets (raw_feature_bc_matrix) and table of counts (filtered_feature_bc_matrix)
-    meta    <- SARC_f_subset@meta.data
-    umap    <- SARC_f_subset@reductions$umap@cell.embeddings
-  sc = SoupChannel(raw_clean,SARC_f_subset@assays[["RNA"]]@layers[[1]])
-  sc = setClusters(sc, setNames(meta$seurat_clusters, rownames(meta)))
-  sc <- setDR(sc,umap)
-  sc = autoEstCont(sc)
-  head(sc$soupProfile[order(sc$soupProfile$est, decreasing = T), ], n = 20)
-  out = adjustCounts(sc, roundToInt = TRUE)
-  #optional keep original counts
-  all_processed_counts[[sample]] <- out
-  SARC_f[[paste0("processed_counts_", sample)]] <- CreateAssayObject(counts = out)
-  }
-  return(SARC_f)
-  
+# Create SoupGroups:
+# While it is possible to run SoupX without clustering information, you will get far better results if some basic clustering is provided. Therefore, it is strongly recommended that you provide some clustering information to SoupX
+get_soup_groups <- function(sobj){
+  counts = GetAssayData(sobj, assay = "RNA", layer = "counts")
+  sobj@assays[["RNA"]] = CreateAssayObject(counts = counts)
+  print("Normalizing")
+  sobj <- SCTransform(sobj, assay = "RNA")
+  print("Run PCA")
+  sobj <- RunPCA(sobj, npcs = 20, verbose = FALSE)
+  print("Finding neighbours")
+  sobj <- FindNeighbors(sobj, dims = 1:20, verbose = FALSE)
+  sobj <- FindClusters(sobj, resolution = 0.5, verbose = FALSE)
+  return(sobj)
 }
 
-SARC_f = make_soup(SARC_f)
+#load seurat
+SARC_f = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f.rds")
+SARC_f_list = SplitObject(SARC_f, split.by = "orig.ident")
+SARC_f_list = lapply(SARC_f_list, get_soup_groups)
 
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+## Load functions
+```{r}
+####
+make_soup <- function(sobj) {
+  # get samples
+    sample = unique(sobj$orig.ident)
+    if (grepl("hSC26", sample)) {
+      print(paste0("Reading ",sample))
+      path <- paste0("/home/caminors/Desktop/sc_RNAseq/RAW_featured_bc_matrix/outs_raw/hSC26")
+      raw <- Read10X(data.dir = path)
+      raw = raw$`Gene Expression`
+      cell_names = as.data.frame(colnames(sobj))
+      print(paste0("Renaming barcodes"))
+      colnames(cell_names)="cell_names"
+      split_result= strsplit(cell_names$cell_names, "_")
+      cell_names$barcode <- sapply(split_result, function(x) x[3])
+      new_colnames <- cell_names$cell_names[match(colnames(raw), cell_names$barcode)]
+      print(paste0("Seurat object contains: ", ncol(sobj), " cells. Raw matrix contains: ", ncol(raw), " cells."))
+      # Keep unmatched columns as the original barcodes (NA values are replaced by the original barcode names)
+      new_colnames[is.na(new_colnames)] <- colnames(raw)[is.na(new_colnames)]
+      # Apply the new column names to 'raw'
+      colnames(raw) <- new_colnames
+      } else {
+      print(paste0("Reading ",sample))
+      path <- paste0("/home/caminors/Desktop/sc_RNAseq/RAW_featured_bc_matrix/outs_raw/", sample)
+      raw <- Read10X(data.dir = path)
+      print(paste0("Renaming barcodes"))
+      colnames(raw) = paste0(sample,"_", colnames(raw))
+      print(paste0("Seurat object contains: ", ncol(sobj), " cells. Raw matrix contains: ", ncol(raw), " cells."))
+    }
+    count_matrix <- GetAssayData(sobj, assay = "RNA", slot = "counts")
+    sc = SoupChannel(raw,count_matrix)
+    sc = setClusters(sc,sobj$seurat_clusters)
+    sc = autoEstCont(sc, doPlot=TRUE)
+    out = adjustCounts(sc, roundToInt = TRUE)
+  #optional keep original counts
+    sobj[["original.counts"]] <- CreateAssayObject(counts = sobj@assays$RNA@counts)
+    sobj@assays$RNA@counts <- out
+    return(sobj)
+}
+```
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+### 2) Run Soup and save the results (new cleaned counts are found in assay @assay$RNA@counts !!)
+```{r}
+SARC_f_list = lapply(SARC_f_list, make_soup)
+saveRDS(SARC_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f_list_original_and_SoupX.rds")
+```
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+### 3) Sanity check to determine % of UMIs removed by SoupX
+```{r}
+check_data <- function(sobj){
+  print(sum(sobj@assays$RNA@counts)/sum(sobj@assays$original.counts@counts))
+}
+
+lapply(SARC_f_list, check_data)
+```
+```{r}
+SARC_f_list = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f_list_original_and_SoupX.rds")
+#remove original.counts assay
+
+for (i in seq_along(SARC_f_list)) {
+  SARC_f_list[[i]]@assays$original.counts <- NULL
+}
+
+#add "rna_" key to @assay$RNA
+for (i in seq_along(SARC_f_list)) {
+  if (is.null(SARC_f_list[[i]]@assays$RNA@key) || SARC_f_list[[i]]@assays$RNA@key == "") {
+    SARC_f_list[[i]]@assays$RNA@key <- "rna_"
+  }
+}
+
+# check if keys are present correctly:
+for (i in seq_along(SARC_f_list)) {
+  cat("Object:", names(SARC_f_list)[i], "\n")
+  for (assay_name in names(SARC_f_list[[i]]@assays)) {
+    cat("  Assay:", assay_name, ", Key:", SARC_f_list[[i]]@assays[[assay_name]]@key, "\n")
+  }
+}
+# Save seurat without original counts (memorywise!)
+saveRDS(SARC_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f_list_SoupX.rds")
+```
+
+## 4) Repeat for Gruel_f
+```{r}
+Gruel_f = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/Gruel_f.rds")
+Gruel_f_list = SplitObject(Gruel_f, split.by = "orig.ident")
+Gruel_f_list = lapply(Gruel_f_list, get_soup_groups)
+Gruel_f_list = lapply(Gruel_f_list, make_soup)
+lapply(Gruel_f_list, check_data)
+saveRDS(Gruel_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/SGruel_f_list_original_and_SoupX.rds")
+
+```
+
+```{r}
+Gruel_f_list = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f_list_original_and_SoupX.rds")
+#remove original.counts assay
+
+for (i in seq_along(Gruel_f_list)) {
+  Gruel_f_list[[i]]@assays$original.counts <- NULL
+}
+
+#add "rna_" key to @assay$RNA
+for (i in seq_along(Gruel_f_list)) {
+  if (is.null(Gruel_f_list[[i]]@assays$RNA@key) || Gruel_f_list[[i]]@assays$RNA@key == "") {
+    Gruel_f_list[[i]]@assays$RNA@key <- "rna_"
+  }
+}
+
+# check if keys are present correctly:
+for (i in seq_along(Gruel_f_list)) {
+  cat("Object:", names(Gruel_f_list)[i], "\n")
+  for (assay_name in names(Gruel_f_list[[i]]@assays)) {
+    cat("  Assay:", assay_name, ", Key:", Gruel_f_list[[i]]@assays[[assay_name]]@key, "\n")
+  }
+}
+# Save seurat without original counts (memory wise!)
+saveRDS(Gruel_f_list, "/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_f_list_SoupX.rds")
+```
