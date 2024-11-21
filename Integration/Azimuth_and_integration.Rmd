@@ -121,8 +121,8 @@ Tumor@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
 # Print the number of genes removed
 cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
 ```
-
-```{r}
+## Harmony integration
+```{r, harmony_integration}
 Tumor <- RunPCA(Tumor)
 Tumor <- IntegrateLayers(
   object = Tumor, method = HarmonyIntegration,
@@ -134,7 +134,7 @@ Tumor <- IntegrateLayers(
 ```{r}
 ElbowPlot(Tumor, ndims = 50)
 ```
-```{r}
+```{r, UMAP_harmony_integration}
 Tumor <- FindNeighbors(Tumor, reduction = "harmony", dims = 1:20)
 Tumor <- FindClusters(Tumor, resolution = 0.5, cluster.name = "harmony_cluster")
 Tumor <- RunUMAP(Tumor, reduction = "harmony", dims = 1:20, reduction.name = "umap.harmony")
