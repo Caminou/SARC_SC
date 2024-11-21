@@ -1,16 +1,39 @@
 # Single-cell RNAseq Analysis on Sarcoma
 
 
-Full dataset is divided into Tumor + PDSC and Raw data from Tumor samples from Gruel et al
+Full dataset is divided into SARC data (Tumor (n=5) + PDSC (n=6)) and Raw data from Tumor samples from Gruel et al (n=31) under [GSE221494](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE221494).
 
-1) Data preparation and Quality control
-   - [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/main/QC/Load_wrangling_and_QC.Rmd)
-   - [QC](https://github.com/Caminou/SRC_SC/tree/main/QC)
-   - [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
-   - [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
-2) Data Integration
-3) Cell annotation
-4) PDSC mapping and label transfer
-5) CNV for Tumor-cell identification
-6) DGE (Tumor vs PDSC) :tada:
+Both datasets have been processed, QC and analyzed in the same way:
+
+#####  1) Data preparation and Quality control
+- [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/main/QC/Load_wrangling_and_QC.Rmd)
+- [x] [QC](https://github.com/Caminou/SRC_SC/tree/main/QC)
+- [ ] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
+- [ ] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
+##### 2) Data Integration
+- [ ] Harmony
+- [ ] SCVI
+- [ ] Wnn
+##### 4) Cell annotation
+- [ ] SCimilarity from HCA
+- [ ] Azimuth
+- [ ] Gruel et al vs SARC
+##### 6) PDSC mapping and label transfer
+- [ ] Seurat label transfer
+- [ ] Seurat mapping
+##### 7) CNV for Tumor-cell identification
+- [ ] Copykat
+- [ ] SCEVAN
+##### 8) Grouping tumor cells by MDM2 expression
+- [ ] Gene signatures
+- [ ] Cell proportion among patients 
+##### 8) DGE :tada:
+- [ ] Tumor biopsy vs PDSC
+- [ ] ASPC vs tumor cells
+- [ ] MDM2 high vs MDM2 low
+##### 9) Cell-Cell interaction analysis
+- [ ] CellPhone
+##### 10) fGWAS
+##### 11) Spatial validation?
+
 
