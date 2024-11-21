@@ -8,12 +8,17 @@ Both datasets have been processed, QC and analyzed in the same way:
 #####  1) Data preparation and Quality control
 - [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/main/QC/Load_wrangling_and_QC.Rmd)
 - [x] [QC](https://github.com/Caminou/SRC_SC/tree/main/QC)
-- [ ] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
-- [ ] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
+- [X] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
+- [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
 ##### 2) Data Integration
-- [ ] Harmony
-- [ ] SCVI
-- [ ] Wnn
+- [ ] Tumor biopsies
+  - [ ] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Azimuth_and_integration.Rmd#L124)
+  - [ ] SCVI
+  - [ ] Wnn
+- [ ] Gruel et al
+  - [ ] Harmony
+  - [ ] SCVI
+  - [ ] Wnn
 ##### 4) Cell annotation
 - [ ] SCimilarity from HCA
 - [ ] Azimuth
