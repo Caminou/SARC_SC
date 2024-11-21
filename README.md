@@ -19,10 +19,11 @@ Both datasets have been processed, QC and analyzed in the same way:
   - [ ] Harmony
   - [ ] SCVI
   - [ ] Wnn
-##### 4) Cell annotation
+##### 4) Cell-type prediction
+- [X] Azimuth
 - [ ] SCimilarity from HCA
-- [ ] Azimuth
 - [ ] Gruel et al vs SARC
+##### 5) Clean cell-type annotation
 ##### 6) PDSC mapping and label transfer
 - [ ] Seurat label transfer
 - [ ] Seurat mapping
