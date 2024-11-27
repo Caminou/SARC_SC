@@ -6,14 +6,14 @@ Full dataset is divided into SARC data (Tumor (n=5) + PDSC (n=6)) and Raw data f
 Both datasets have been processed, QC and analyzed in the same way:
 
 #####  1) Data preparation and Quality control
-- [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/main/QC/Load_wrangling_and_QC.Rmd](https://github.com/Caminou/SARC_SC/tree/main/Load_Seurat/ )
+- [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/main/QC/Load_wrangling_and_QC.Rmd)
 - [x] [QC](https://github.com/Caminou/SRC_SC/tree/main/QC)
 - [X] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
 - [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
 ##### 2) Data Integration
 - [ ] Tumor biopsies
   - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Azimuth_and_integration.Rmd#L124)
-  - [ ] SCVI
+  - [x] [SCVI]((https://github.com/Caminou/SARC_SC/blob/main/Integration/scvi_Tumor.ipynb)
   - [x] Wnn
 - [ ] Gruel et al
   - [x] Harmony
