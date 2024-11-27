@@ -22,7 +22,7 @@ Both datasets have been processed, QC and analyzed in the same way:
 ##### 4) Cell-type prediction
 - [X] [Azimuth](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L64)
 - [ ] SCimilarity from HCA
-- [ ] Gruel et al vs SARC
+- [ ] Gruel et al vs SARC (mapping SARC_Tumor into Gruel data)
 ##### 5) Clean cell-type annotation
 ##### 6) PDSC mapping and label transfer
 - [ ] Seurat label transfer
