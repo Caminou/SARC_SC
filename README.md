@@ -7,7 +7,7 @@ Both datasets have been processed, QC and analyzed in the same way:
 
 #####  1) Data preparation and Quality control
 - [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/Load_Seurat/Load_Samples.Rmd)
-- [x] [QC](https://github.com/Caminou/SRC_SC/tree/main/QC)
+- [x] [QC](https://caminou.github.io/SARC_SC/QC/QC.html)
 - [X] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
 - [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
 ##### 2) Data Integration
