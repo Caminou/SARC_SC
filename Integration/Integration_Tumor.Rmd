@@ -121,7 +121,7 @@ Tumor@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
 # Print the number of genes removed
 cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
 ```
-
+## Harmony Integration
 ```{r}
 Tumor <- RunPCA(Tumor)
 Tumor <- IntegrateLayers(
