@@ -129,11 +129,9 @@ Tumor <- IntegrateLayers(
   orig.reduction = "pca", new.reduction = "harmony",
   verbose = FALSE
 )
-```
-## Check Elbow Plot
-```{r}
 ElbowPlot(Tumor, ndims = 50)
 ```
+
 ```{r, fig.width=20, fig.height=5}
 Tumor <- FindNeighbors(Tumor, reduction = "harmony", dims = 1:20)
 Tumor <- FindClusters(Tumor, resolution = 0.5, cluster.name = "harmony_cluster")
@@ -145,11 +143,10 @@ DimPlot(Tumor,
 )
 ```
 
-
-
 ## Mnn Integration
 ```{r, fig.width=20, fig.height=5}
 library(SeuratWrappers)
+DefaultAssay(Tumor)="SCT"
 Tumor <- IntegrateLayers(
   object = Tumor, method = FastMNNIntegration,
   new.reduction = "Mnn",
@@ -177,7 +174,7 @@ summary(Tumor$lisi_harmony)
 summary(Tumor$lisi_mnn)
 library(ggplot2)
 # Generate the plots
-FeaturePlot(Tumor, features = c("lisi_harmony")) + FeaturePlot(Tumor, features=c("lisi_mnn"))
+FeaturePlot(Tumor, features = c("lisi_harmony"), reduction = "umap.harmony") + FeaturePlot(Tumor, features=c("lisi_mnn"), reduction="umap.mnn")
 ```
 ## Save object
 ```{r}

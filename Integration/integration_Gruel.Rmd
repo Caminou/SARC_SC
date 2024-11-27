@@ -1,5 +1,5 @@
 ---
-title: "Integration_Tumor"
+title: "Integration_Gruel"
 author: "Camino RSM"
 date: "2024-11-21"
 output: html_document
@@ -11,14 +11,17 @@ knitr::opts_chunk$set(warning = FALSE)
 
 ## Load Seurat, add metadata, remove doublets
 ```{r}
+
 library(Seurat)
 library(harmony)
 library(SeuratDisk)
 library(dplyr)
-Tumor = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_Tumor_f_Soup_doublet.rds")
-Tumor@assays$SCT = NULL
-DefaultAssay(Tumor)="RNA"
-metadata = read.csv("/home/caminors/Desktop/sc_RNAseq/QC_seurats/PDSC_scRNAseq_metadata_VY20241003.csv")
+
+Gruel = readRDS("/var/RDI_group/camino_sandbox/Gruel_f_Soup_doublet.rds")
+
+Gruel@assays$SCT = NULL
+DefaultAssay(Gruel)="RNA"
+metadata = read.csv("/var/RDI_group/camino_sandbox/PDSC_scRNAseq_metadata_VY20241003.csv")
 new_metadata <- metadata %>%
   distinct(biosample, .keep_all = TRUE) %>%  # Keep only unique `biosample` rows
   mutate(
@@ -33,52 +36,56 @@ rownames(new_metadata)=new_metadata$biosample
 new_metadata$orig.ident = new_metadata$biosample
 
 updated_metadata <- merge(
-  x = Tumor@meta.data, 
+  x = Gruel@meta.data, 
   y = new_metadata, 
   by = "orig.ident", 
   all.x = TRUE  # Keeps all cells in the Seurat object
 )
 
 # Restore row names (critical for Seurat objects)
-rownames(updated_metadata) <- rownames(Tumor@meta.data)
+rownames(updated_metadata) <- rownames(Gruel@meta.data)
 # Update the Seurat object's metadata
-Tumor@meta.data <- updated_metadata
-table(Tumor$orig.ident)
+Gruel@meta.data <- updated_metadata
+table(Gruel$orig.ident)
 
-Tumor = subset(Tumor, scDblFinder.class %in% c("singlet"))
+Gruel = subset(Gruel, scDblFinder.class %in% c("singlet"))
 
-table(Tumor$orig.ident)
+table(Gruel$orig.ident)
 ```
+
+
 
 ### Remove ENSG genes that were unmapped from all assays
 ```{r}
-# Extract gene names starting with "ENSG" from the Tumor object
-ENS_genes <- Tumor@assays[["RNA"]]@counts@Dimnames[[1]][grepl("^ENSG", Tumor@assays[["RNA"]]@counts@Dimnames[[1]])]
+# Extract gene names starting with "ENSG" from the Gruel object
+ENS_genes <- Gruel@assays[["RNA"]]@counts@Dimnames[[1]][grepl("^ENSG", Gruel@assays[["RNA"]]@counts@Dimnames[[1]])]
 # Extract gene names from SCT assay
-Total_genes <- rownames(Tumor@assays[["RNA"]]@counts)
+Total_genes <- rownames(Gruel@assays[["RNA"]]@counts)
 # Remove the identified genes from the SCT assay
-Tumor@assays[["RNA"]] <- subset(Tumor@assays[["RNA"]], features = Total_genes[!Total_genes %in% ENS_genes])
-cat("Number of genes removed:", (length(Total_genes) -nrow(Tumor@assays[["RNA"]])), "\n")
+Gruel@assays[["RNA"]] <- subset(Gruel@assays[["RNA"]], features = Total_genes[!Total_genes %in% ENS_genes])
+cat("Number of genes removed:", (length(Total_genes) -nrow(Gruel@assays[["RNA"]])), "\n")
 ```
 
 ## Cell-type prediction using Azimuth
 ```{r}
 library(Azimuth)
-DefaultAssay(Tumor)="RNA"
-Tumor <- RunAzimuth(Tumor, reference="adiposeref")
-table(Tumor$predicted.celltype.l1)
+DefaultAssay(Gruel)="RNA"
+Gruel <- RunAzimuth(Gruel, reference="adiposeref")
+table(Gruel$predicted.celltype.l1)
 ```
+
 ## Splitting the RNA assay on layers by orig.ident --> one count and one data for each orig.ident
 ```{r}
-Tumor
-Tumor[["RNA"]] <- split(Tumor[["RNA"]], f = Tumor$orig.ident)
-Tumor
+Gruel
+Gruel[["RNA"]] <- split(Gruel[["RNA"]], f = Gruel$orig.ident)
+Gruel
 ```
+
 # Normalize Data using SCT
 ```{r}
 library(future)
 options(future.globals.maxSize=30000*1024^2)
-Tumor <- SCTransform(Tumor, assay="RNA")
+Gruel <- SCTransform(Gruel, assay="RNA")
 ```
 
 ## Remove genes known to be distorting the clustering (HSP/VDJ genes)
@@ -108,7 +115,7 @@ hsp_genes <- c(
 genes_to_remove <- unique(c(vdj_genes, hsp_genes))
 
 # get genes present in SCT
-SCT_genes =Tumor@assays[["SCT"]]@var.features
+SCT_genes =Gruel@assays[["SCT"]]@var.features
 # Identify which of the genes to be removed are present in the SCT assay
 genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
 
@@ -116,29 +123,31 @@ genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
 num_genes_removed <- length(genes_in_SCT)
 
 # Remove the identified genes 
-Tumor@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+Gruel@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
 
 # Print the number of genes removed
 cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
 ```
 
+## Harmony Integration
 ```{r}
-Tumor <- RunPCA(Tumor)
-Tumor <- IntegrateLayers(
-  object = Tumor, method = HarmonyIntegration,
+Gruel <- RunPCA(Gruel)
+Gruel <- IntegrateLayers(
+  object = Gruel, method = HarmonyIntegration,
   orig.reduction = "pca", new.reduction = "harmony",
   verbose = FALSE
 )
 ```
-## Check Elbow Plot
+
 ```{r}
-ElbowPlot(Tumor, ndims = 50)
+ElbowPlot(Gruel, ndims = 50)
 ```
-```{r, fig.width=20, fig.height=5}
-Tumor <- FindNeighbors(Tumor, reduction = "harmony", dims = 1:20)
-Tumor <- FindClusters(Tumor, resolution = 0.5, cluster.name = "harmony_cluster")
-Tumor <- RunUMAP(Tumor, reduction = "harmony", dims = 1:20, reduction.name = "umap.harmony")
-DimPlot(Tumor,
+
+```{r,fig.width=20, fig.height=5}
+Gruel <- FindNeighbors(Gruel, reduction = "harmony", dims = 1:20)
+Gruel <- FindClusters(Gruel, resolution = 0.1, cluster.name = "harmony_cluster")
+Gruel <- RunUMAP(Gruel, reduction = "harmony", dims = 1:20, reduction.name = "umap.harmony")
+DimPlot(Gruel,
   reduction = "umap.harmony",
   group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster"),
   combine = TRUE, label.size = 2
@@ -146,42 +155,36 @@ DimPlot(Tumor,
 ```
 
 
-
 ## Mnn Integration
 ```{r, fig.width=20, fig.height=5}
 library(SeuratWrappers)
-DefaultAssay(Tumor)="SCT"
-Tumor <- IntegrateLayers(
-  object = Tumor, method = FastMNNIntegration,
+Gruel <- IntegrateLayers(
+  object = Gruel, method = FastMNNIntegration,
   new.reduction = "Mnn",
-  verbose = FALSE,  batch= Tumor$orig.ident )
-Tumor <- FindNeighbors(Tumor, reduction = "Mnn", dims = 1:20)
-Tumor <- FindClusters(Tumor, resolution = 0.5, cluster.name = "mnn_cluster")
-Tumor <- RunUMAP(Tumor, reduction = "Mnn", dims = 1:20, reduction.name = "umap.mnn")
+  verbose = FALSE,  batch= Gruel$orig.ident )
+Gruel <- FindNeighbors(Gruel, reduction = "Mnn", dims = 1:20)
+Gruel <- FindClusters(Gruel, resolution = 0.5, cluster.name = "mnn_cluster")
+Gruel <- RunUMAP(Gruel, reduction = "Mnn", dims = 1:20, reduction.name = "umap.mnn")
 
-DimPlot(Tumor,
+DimPlot(Gruel,
   reduction = "umap.mnn",
   group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
   combine = TRUE, label.size = 2
 )
 ```
-
-
 ## Calculate lisi score
-```{r,  fig.width=6, fig.height=7}
-
-Tumor$lisi_harmony <- lisi::compute_lisi(Tumor@reductions[["umap.harmony"]]@cell.embeddings, Tumor@meta.data, "orig.ident")
-Tumor$lisi_mnn <- lisi::compute_lisi(Tumor@reductions[["umap.mnn"]]@cell.embeddings, Tumor@meta.data, "orig.ident")
+```{r, fig.width=6, fig.height=7}
+Gruel$lisi_harmony <- lisi::compute_lisi(Gruel@reductions[["umap.harmony"]]@cell.embeddings, Gruel@meta.data, "orig.ident")
+Gruel$lisi_mnn <- lisi::compute_lisi(Gruel@reductions[["umap.mnn"]]@cell.embeddings, Gruel@meta.data, "orig.ident")
 
 ## Higher lisi means better mix between samples :)
-summary(Tumor$lisi_harmony)
-summary(Tumor$lisi_mnn)
+summary(Gruel$lisi_harmony)
+summary(Gruel$lisi_mnn)
 library(ggplot2)
 # Generate the plots
-FeaturePlot(Tumor, features = c("lisi_harmony"), reduction = "umap.harmony") + FeaturePlot(Tumor, features=c("lisi_mnn"), reduction="umap.mnn")
-```
-## Save object
-```{r}
-saveRDS(Tumor, "./Tumor_umap_harmony_mnn_Azimuth.rds")
+FeaturePlot(Gruel, features = c("lisi_harmony"), reduction = "umap.harmony") + FeaturePlot(Gruel, features=c("lisi_mnn"), reduction="umap.mnn")
 ```
 
+```{r}
+saveRDS(Gruel, "./Gruel_f_Azimuth_harmony_mnn.rds")
+```
