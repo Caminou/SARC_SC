@@ -142,7 +142,7 @@ Gruel <- IntegrateLayers(
 ```{r}
 ElbowPlot(Gruel, ndims = 50)
 ```
-
+## Harmony Integration
 ```{r,fig.width=20, fig.height=5}
 Gruel <- FindNeighbors(Gruel, reduction = "harmony", dims = 1:20)
 Gruel <- FindClusters(Gruel, resolution = 0.1, cluster.name = "harmony_cluster")
