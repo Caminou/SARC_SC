@@ -12,13 +12,13 @@ Both datasets have been processed, QC and analyzed in the same way:
 - [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
 ##### 2) Data Integration
 - [ ] Tumor biopsies
-  - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Azimuth_and_integration.Rmd#L124)
+  - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L124)
   - [x] [SCVI](https://github.com/Caminou/SARC_SC/blob/main/Integration/scvi_Tumor.ipynb)
-  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Azimuth_and_integration.Rmd#L124)
+  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L150)
 - [ ] Gruel et al
   - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L145)
   - [ ] SCVI
-  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L158))
+  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L158)
 ##### 4) Cell-type prediction
 - [X] Azimuth
 - [ ] SCimilarity from HCA
