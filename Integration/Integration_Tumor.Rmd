@@ -1,0 +1,186 @@
+---
+title: "Integration_Tumor"
+author: "Camino RSM"
+date: "2024-11-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+## Load Seurat, add metadata, remove doublets
+```{r}
+library(Seurat)
+library(harmony)
+library(SeuratDisk)
+library(dplyr)
+Tumor = readRDS("/home/caminors/Desktop/sc_RNAseq/QC_seurats/SARC_Tumor_f_Soup_doublet.rds")
+Tumor@assays$SCT = NULL
+DefaultAssay(Tumor)="RNA"
+metadata = read.csv("/home/caminors/Desktop/sc_RNAseq/QC_seurats/PDSC_scRNAseq_metadata_VY20241003.csv")
+new_metadata <- metadata %>%
+  distinct(biosample, .keep_all = TRUE) %>%  # Keep only unique `biosample` rows
+  mutate(
+    biosample = case_when(
+      biosample == "hSC26_adj" ~ "hSC26_AdjNorm",  # Replace specific value
+      biosample == "hSC26_t" ~ "hSC26_ddLPS",     # Replace another specific value
+      TRUE ~ biosample                             # Keep the rest unchanged
+    )
+  )
+new_metadata$Run = NULL
+rownames(new_metadata)=new_metadata$biosample
+new_metadata$orig.ident = new_metadata$biosample
+
+updated_metadata <- merge(
+  x = Tumor@meta.data, 
+  y = new_metadata, 
+  by = "orig.ident", 
+  all.x = TRUE  # Keeps all cells in the Seurat object
+)
+
+# Restore row names (critical for Seurat objects)
+rownames(updated_metadata) <- rownames(Tumor@meta.data)
+# Update the Seurat object's metadata
+Tumor@meta.data <- updated_metadata
+table(Tumor$orig.ident)
+
+Tumor = subset(Tumor, scDblFinder.class %in% c("singlet"))
+
+table(Tumor$orig.ident)
+```
+
+### Remove ENSG genes that were unmapped from all assays
+```{r}
+# Extract gene names starting with "ENSG" from the Tumor object
+ENS_genes <- Tumor@assays[["RNA"]]@counts@Dimnames[[1]][grepl("^ENSG", Tumor@assays[["RNA"]]@counts@Dimnames[[1]])]
+# Extract gene names from SCT assay
+Total_genes <- rownames(Tumor@assays[["RNA"]]@counts)
+# Remove the identified genes from the SCT assay
+Tumor@assays[["RNA"]] <- subset(Tumor@assays[["RNA"]], features = Total_genes[!Total_genes %in% ENS_genes])
+cat("Number of genes removed:", (length(Total_genes) -nrow(Tumor@assays[["RNA"]])), "\n")
+```
+
+## Cell-type prediction using Azimuth
+```{r}
+library(Azimuth)
+DefaultAssay(Tumor)="RNA"
+Tumor <- RunAzimuth(Tumor, reference="adiposeref")
+table(Tumor$predicted.celltype.l1)
+```
+## Splitting the RNA assay on layers by orig.ident --> one count and one data for each orig.ident
+```{r}
+Tumor
+Tumor[["RNA"]] <- split(Tumor[["RNA"]], f = Tumor$orig.ident)
+Tumor
+```
+# Normalize Data using SCT
+```{r}
+library(future)
+options(future.globals.maxSize=30000*1024^2)
+Tumor <- SCTransform(Tumor, assay="RNA")
+```
+
+## Remove genes known to be distorting the clustering (HSP/VDJ genes)
+```{r}
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Tumor@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Tumor@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r}
+Tumor <- RunPCA(Tumor)
+Tumor <- IntegrateLayers(
+  object = Tumor, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+```
+## Check Elbow Plot
+```{r}
+ElbowPlot(Tumor, ndims = 50)
+```
+```{r, fig.width=20, fig.height=5}
+Tumor <- FindNeighbors(Tumor, reduction = "harmony", dims = 1:20)
+Tumor <- FindClusters(Tumor, resolution = 0.5, cluster.name = "harmony_cluster")
+Tumor <- RunUMAP(Tumor, reduction = "harmony", dims = 1:20, reduction.name = "umap.harmony")
+DimPlot(Tumor,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster"),
+  combine = TRUE, label.size = 2
+)
+```
+
+
+
+## Mnn Integration
+```{r, fig.width=20, fig.height=5}
+library(SeuratWrappers)
+Tumor <- IntegrateLayers(
+  object = Tumor, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Tumor$orig.ident )
+Tumor <- FindNeighbors(Tumor, reduction = "Mnn", dims = 1:20)
+Tumor <- FindClusters(Tumor, resolution = 0.5, cluster.name = "mnn_cluster")
+Tumor <- RunUMAP(Tumor, reduction = "Mnn", dims = 1:20, reduction.name = "umap.mnn")
+
+DimPlot(Tumor,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
+  combine = TRUE, label.size = 2
+)
+```
+
+
+## Calculate lisi score
+```{r,  fig.width=6, fig.height=7}
+
+Tumor$lisi_harmony <- lisi::compute_lisi(Tumor@reductions[["umap.harmony"]]@cell.embeddings, Tumor@meta.data, "orig.ident")
+Tumor$lisi_mnn <- lisi::compute_lisi(Tumor@reductions[["umap.mnn"]]@cell.embeddings, Tumor@meta.data, "orig.ident")
+
+## Higher lisi means better mix between samples :)
+summary(Tumor$lisi_harmony)
+summary(Tumor$lisi_mnn)
+library(ggplot2)
+# Generate the plots
+FeaturePlot(Tumor, features = c("lisi_harmony")) + FeaturePlot(Tumor, features=c("lisi_mnn"))
+```
+## Save object
+```{r}
+saveRDS(Tumor, "./Tumor_umap_harmony_mnn_Azimuth.rds")
+```
+
