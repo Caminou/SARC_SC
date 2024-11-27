@@ -16,9 +16,9 @@ Both datasets have been processed, QC and analyzed in the same way:
   - [x] [SCVI](https://github.com/Caminou/SARC_SC/blob/main/Integration/scvi_Tumor.ipynb)
   - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Azimuth_and_integration.Rmd#L124)
 - [ ] Gruel et al
-  - [x] Harmony
+  - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L145)
   - [ ] SCVI
-  - [x] Wnn
+  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L158))
 ##### 4) Cell-type prediction
 - [X] Azimuth
 - [ ] SCimilarity from HCA
