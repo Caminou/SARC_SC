@@ -11,7 +11,7 @@ Both datasets have been processed, QC and analyzed in the same way:
 - [X] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
 - [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
 ##### 2) Data Integration
-- [ ] Tumor biopsies
+- [X] Tumor biopsies
   - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L124)
   - [x] [SCVI](https://github.com/Caminou/SARC_SC/blob/main/Integration/scvi_Tumor.ipynb)
   - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L150)
@@ -20,7 +20,7 @@ Both datasets have been processed, QC and analyzed in the same way:
   - [ ] SCVI
   - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L158)
 ##### 4) Cell-type prediction
-- [X] Azimuth
+- [X] [Azimuth](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L64)
 - [ ] SCimilarity from HCA
 - [ ] Gruel et al vs SARC
 ##### 5) Clean cell-type annotation
