@@ -6,7 +6,7 @@ Full dataset is divided into SARC data (Tumor (n=5) + PDSC (n=6)) and Raw data f
 Both datasets have been processed, QC and analyzed in the same way:
 
 #####  1) Data preparation and Quality control
-- [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/main/QC/Load_wrangling_and_QC.Rmd)
+- [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/Load_Seurat/Load_Samples.Rmd)
 - [x] [QC](https://github.com/Caminou/SRC_SC/tree/main/QC)
 - [X] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
 - [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
