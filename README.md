@@ -13,8 +13,8 @@ Both datasets have been processed, QC and analyzed in the same way:
 ##### 2) Data Integration
 - [ ] Tumor biopsies
   - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Azimuth_and_integration.Rmd#L124)
-  - [x] [SCVI]((https://github.com/Caminou/SARC_SC/blob/main/Integration/scvi_Tumor.ipynb)
-  - [x] Wnn
+  - [x] [SCVI](https://github.com/Caminou/SARC_SC/blob/main/Integration/scvi_Tumor.ipynb)
+  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Azimuth_and_integration.Rmd#L124)
 - [ ] Gruel et al
   - [x] Harmony
   - [ ] SCVI
