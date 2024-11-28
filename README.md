@@ -6,34 +6,33 @@ Full dataset is divided into SARC data (Tumor (n=5) + PDSC (n=6)) and Raw data f
 Both datasets have been processed, QC and analyzed in the same way:
 
 #####  1) Data preparation and Quality control
-- [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SRC_SC/tree/Load_Seurat/Load_Samples.Rmd)
+- [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SARC_SC/Load_Seurat/)
 - [x] [QC](https://caminou.github.io/SARC_SC/QC/QC.html)
 - [X] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
 - [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
 ##### 2) Data Integration
-- [X] Tumor biopsies
-  - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L124)
-  - [x] [SCVI](https://github.com/Caminou/SARC_SC/blob/main/Integration/scvi_Tumor.ipynb)
-  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L150)
-- [ ] Gruel et al
-  - [x] [Harmony](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L145)
+- [X] [Tumor biopsies](https://github.com/Caminou/SARC_SC/tree/main/Integration/Tumor)
+  - [x] Harmony
+  - [x] SCVI
+  - [x] Wnn
+- [ ] [Gruel et al](https://github.com/Caminou/SARC_SC/tree/main/Integration/Gruel)
+  - [x] Harmony
   - [ ] SCVI
-  - [x] [Wnn](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Gruel.Rmd#L158)
+  - [x] Wnn
 - [ ] Tumor and Gruel together
-  - [ ] Harmony
+  - [x] Harmony
   - [ ] SCVI
-  - [ ] Wnn
+  - [x] Wnn
 ##### 4) Cell-type prediction
 - [X] [Azimuth](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L64)
 - [ ] SCimilarity from HCA
-- [ ] Gruel et al vs SARC (mapping SARC_Tumor into Gruel data)
 ##### 5) Clean cell-type annotation
-##### 6) PDSC mapping and label transfer
-- [ ] Seurat label transfer
-- [ ] Seurat mapping
-##### 7) CNV for Tumor-cell identification
+##### 6) CNV for Tumor-cell identification
 - [ ] Copykat
 - [ ] SCEVAN
+##### 7) PDSC mapping and label transfer
+- [ ] Seurat label transfer
+- [ ] Seurat mapping
 ##### 8) Grouping tumor cells by MDM2 expression
 - [ ] Gene signatures
 - [ ] Cell proportion among patients 
