@@ -1,0 +1,1109 @@
+---
+title: "Cell_annotation"
+author: "Camino RSM"
+date: "2024-12-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(Seurat)
+library(ggplot2)
+Merge_data = readRDS("~/camino_sandbox/SC_linux/SARC_Tumor_Gruel_harmony_mnn.rds")
+```
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+
+scisimilarity = read.csv("~/camino_sandbox/similarity_prediction.csv")
+colnames(scisimilarity)= c("Cell_barcodes","scisimilarity_prediction")
+metadata = as.data.frame(Merge_data@meta.data)
+metadata = merge(metadata, scisimilarity, by="Cell_barcodes")
+rownames(metadata)=metadata$Cell_barcodes
+metadata = metadata[Cells(Merge_data),]
+Merge_data@meta.data = metadata
+DimPlot(Merge_data, reduction="umap.harmony", group.by = "scisimilarity_prediction",label.size = 2, label=T) + theme(legend.position="none")
+DefaultAssay(Merge_data)="RNA"
+Idents(Merge_data) ="harmony_cluster"
+Merge_data_j =JoinLayers(Merge_data)
+Merge_data_j = NormalizeData(Merge_data_j)
+Markers =  FindAllMarkers(
+  Merge_data_j, 
+  logfc.threshold = 0.5,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+```
+### Get the ASPC cells
+
+```{r, fig.width=7, fig.height=5}
+ASPC = subset(Merge_data, harmony_cluster %in% c("3","0","6"))
+DimPlot(ASPC, reduction="umap.harmony", group.by = "harmony_cluster")
+```
+
+
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+ASPC <- SCTransform(ASPC, assay="RNA", )
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =ASPC@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+ASPC@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r,fig.width=20, fig.height=5}
+library(SeuratWrappers)
+ASPC <- RunPCA(ASPC)
+ASPC_h <- IntegrateLayers(
+  object = ASPC, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+ASPC_h <- FindNeighbors(ASPC_h, reduction = "harmony", dims = 1:30)
+ASPC_h <- FindClusters(ASPC_h, resolution = 0.6, cluster.name = "harmony_cluster.0.6")
+ASPC_h <- RunUMAP(ASPC_h, reduction = "harmony", dims = 1:30, reduction.name = "umap.harmony")
+DimPlot(ASPC_h,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster"),
+  combine = TRUE, label.size = 2
+)
+
+DefaultAssay(ASPC)="SCT"
+ASPC_m <- IntegrateLayers(
+  object = ASPC, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= ASPC$orig.ident )
+ASPC_m <- FindNeighbors(ASPC_m, reduction = "Mnn", dims = 1:30)
+ASPC_m <- FindClusters(ASPC_m, resolution = 0.1, cluster.name = "mnn_cluster")
+ASPC_m <- RunUMAP(ASPC_m, reduction = "Mnn", dims = 1:20, reduction.name = "umap.mnn")
+
+DimPlot(ASPC_m,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
+  combine = TRUE, label.size = 2
+) 
+```
+
+
+```{r}
+DefaultAssay(ASPC_h)="RNA"
+ASPC_h = JoinLayers(ASPC_h)
+DefaultAssay(ASPC_h)="RNA"
+ASPC = NormalizeData(ASPC_h)
+FeaturePlot(ASPC , features = c("MDM2","CDK4","CD44","DCN","HBB"), reduction="umap.harmony")
+ASPC$harmony_cluster.0.6 =ASPC_h$harmony_cluster.0.6
+Idents(ASPC)="harmony_cluster.0.6"
+DimPlot(ASPC,
+  reduction = "umap.harmony",
+  group.by = c("scisimilarity_prediction"),
+  combine = TRUE, label.size = 2, label=T)+ theme(legend.position="none")
+DefaultAssay(ASPC)="RNA"
+ASPC_markers = FindAllMarkers(
+  ASPC, 
+  logfc.threshold = 0.5,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+DimPlot(ASPC, group.by=c("scDblFinder.class","doublet_finder"),reduction="umap.harmony", label=T, label.size = 4) + DimPlot(ASPC, reduction="umap.harmony", label=T, label.size=4)
+```
+
+
+
+```{r}
+DimPlot(Merge_data, cells.highlight = Cells(subset(ASPC, harmony_cluster.0.6 %in% c("34"))), reduction="umap.harmony")
+```
+
+```{r}
+ASPC$cell_type=ASPC$harmony_cluster.0.6
+
+# Map the cluster IDs to the new cell type annotations
+cell_type = c(
+  "0"="ASPC", "1"="ASPC", "2"="ASPC", "3"="ASPC", "4"="ASPC_C1QA",
+  "5"="ASPC", "6"="ASPC", "7"="ASPC", "8"="ASPC", "9"="ASPC",
+  "10"="ASPC", "11"="ASPC", "12"="ASPC", "13"="ASPC", "14"="ASPC",
+  "15"="ASPC_prolif", "16"="ASPC", "17"="ASPC", "18"="ASPC",
+  "19"="ASPC_preadipocyte", # APOE
+  "20"="remove", "21"="ASPC", "22"="ASPC", "23"="remove",
+  "24"="ASPC", "25"="ASPC", "26"="ASPC", "27"="ASPC", "28"="ASPC",
+  "29"="ASPC", "30"="Mesothelial", "31"="ASPC", "32"="ASPC",
+  "33"="ASPC", "34"="remove", "35"="remove", "36"="ASPC"
+)
+
+# Replace values in the metadata
+# Assume the column in metadata is named "cell_label"
+ASPC@meta.data$cell_type <- as.character(cell_type[as.character(ASPC@meta.data$cell_type)])
+
+# Verify changes
+table(ASPC$cell_type)
+DimPlot(ASPC, group.by = "cell_type", label=T, label.size = 4, reduction="umap.harmony")
+
+cell_annotation = as.data.frame(ASPC$cell_type)
+```
+
+
+```{r}
+cell_type = as.list(
+  "Mesothelial"=c("AP000561.1", "AC005699.1", "LINC02360", "MSLN", "KCTD8", "PKHD1L1", "COL8A1", "LSAMP", "PTPRQ", "FAM155A"),
+  "ASPC" = c("NEGR1", "PDGFRA", "CXCL14", "LAMA2", "NOVA1", "APOD", "SCLK1", "ABCA10", "COL1A2", "KAZN")
+)
+```
+
+
+### Get Endothelial cells
+
+```{r, fig.width=7, fig.height=5}
+library(Seurat)
+Endothelial = subset(Merge_data, harmony_cluster %in% c("5"))
+DimPlot(Endothelial, reduction="umap.harmony", group.by = "harmony_cluster")
+```
+```{r}
+# Calculate SCT assay
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+Endothelial <- SCTransform(Endothelial, assay="RNA")
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Endothelial@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Endothelial@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r,fig.width=20, fig.height=5}
+library(SeuratWrappers)
+Endothelial <- RunPCA(Endothelial)
+Endothelial_h <- IntegrateLayers(
+  object = Endothelial, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+Endothelial_h <- FindNeighbors(Endothelial_h, reduction = "harmony", dims = 1:20)
+Endothelial_h <- FindClusters(Endothelial_h, resolution = 0.4, cluster.name = "harmony_cluster.0.4")
+Endothelial_h <- RunUMAP(Endothelial_h, reduction = "harmony", dims = 1:20, reduction.name = "umap.harmony")
+DimPlot(Endothelial_h,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster"),
+  combine = TRUE, label.size = 2
+)
+
+DefaultAssay(Endothelial)="SCT"
+Endothelial_m <- IntegrateLayers(
+  object = Endothelial, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Endothelial$orig.ident )
+Endothelial_m <- FindNeighbors(Endothelial_m, reduction = "Mnn", dims = 1:20)
+Endothelial_m <- FindClusters(Endothelial_m, resolution = 0.1, cluster.name = "mnn_cluster")
+Endothelial_m <- RunUMAP(Endothelial_m, reduction = "Mnn", dims = 1:20, reduction.name = "umap.mnn")
+
+DimPlot(Endothelial_m,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
+  combine = TRUE, label.size = 2
+) 
+```
+
+
+```{r}
+DefaultAssay(Endothelial_h)="RNA"
+Endothelial_h = JoinLayers(Endothelial_h)
+DefaultAssay(Endothelial_h)="RNA"
+Endothelial = NormalizeData(Endothelial_h)
+FeaturePlot(Endothelial , features = c("MDM2","CDK4","PECAM1","ICAM1","ADIPOQ","RGS5","CLDN5","VWF"), reduction="umap.harmony")+DimPlot(Endothelial, reduction="umap.harmony", label=T, label.size=4)
+Idents(Endothelial)="harmony_cluster.0.4"
+DimPlot(Endothelial,
+  reduction = "umap.harmony",
+  group.by = c("scisimilarity_prediction"),
+  combine = TRUE, label.size = 2, label=T)+ theme(legend.position="none")
+DefaultAssay(Endothelial)="RNA"
+Endothelial_markers = FindAllMarkers(
+  Endothelial, 
+  logfc.threshold = 0.5,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+DimPlot(Endothelial, group.by=c("scDblFinder.class","doublet_finder"),reduction="umap.harmony", label=T, label.size = 4) + DimPlot(Endothelial, reduction="umap.harmony", label=T, label.size=4)
+```
+
+```{r}
+
+### Small subsetting of cluster 3 in order to remove the high mitochondria
+
+Endothelial_c3 = subset(Endothelial, harmony_cluster.0.4 %in% c("3"))
+DimPlot(Endothelial_c3, reduction="umap.harmony")
+Endothelial_c3 = SCTransform(Endothelial_c3)
+library(SeuratWrappers)
+Endothelial_c3 <- RunPCA(Endothelial_c3)
+Endothelial_c3 <- FindNeighbors(Endothelial_c3, reduction = "harmony", dims = 1:20)
+Endothelial_c3 <- FindClusters(Endothelial_c3, resolution = 0.6, cluster.name = "harmony_cluster.0.6")
+Endothelial_c3 <- RunUMAP(Endothelial_c3, reduction = "harmony", dims = 1:20, reduction.name = "umap.harmony")
+DimPlot(Endothelial_c3,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster.0.6"),
+  combine = TRUE, label.size = 2
+)
+Endothelial_c3$cell_type=Endothelial_c3$harmony_cluster.0.6
+cell_type = c("0" = "Adipocyte_C1QA",
+              "1" = "Adipocyte_C1QA",
+              "2"="remove") # high mito
+Endothelial_c3@meta.data$cell_type <- as.character(cell_type[as.character(Endothelial_c3@meta.data$cell_type)])
+
+# Verify changes
+table(Endothelial_c3$cell_type)
+DimPlot(Endothelial_c3, group.by = "cell_type", label=T, label.size = 4, reduction="umap.harmony")
+library(dplyr)
+cell_annotation_re = as.data.frame(Endothelial_c3$cell_type)
+colnames(cell_annotation)="cell_type"
+colnames(cell_annotation_re)="cell_type"
+
+```
+```{r}
+###
+Endothelial$cell_type=Endothelial$harmony_cluster.0.4
+
+cell_type = c("0" = "Endothelial",
+              "1" = "Endothelial",
+              "2"="Endothelial",
+              "3"="adipocyte_C1QA",
+              "4"="Endothelial",
+              "5"="Endothelial",
+              "6"="Endothelial",
+              "7"="Endothelial",
+              "8"="Endothelial",
+              "9"="Endothelial",
+              "10"="remove", # high mt
+              "11"="remove",
+              "12"="Endothelial",
+              "13"="Endothelial",
+              "14"="Endothelial",
+              "15"="Endothelial",
+              "16"="ASPC_C1QA",
+              "17"="Endothelial",
+              "18"="Endothelial")
+# Replace values in the metadata
+# Assume the column in metadata is named "cell_label"
+Endothelial@meta.data$cell_type <- as.character(cell_type[as.character(Endothelial@meta.data$cell_type)])
+
+# Verify changes
+table(Endothelial$cell_type)
+DimPlot(Endothelial, group.by = "cell_type", label=T, label.size = 4, reduction="umap.harmony")
+
+## Add the updated annotation
+# Extract the cell annotation from the smaller Seurat object
+cell_annotation_re <- Endothelial_c3@meta.data[, "cell_type", drop = FALSE]
+rownames(cell_annotation_re) <- colnames(Endothelial_c3)
+# Subset the small metadata to include only overlapping cells
+matching_cells <- intersect(rownames(Endothelial@meta.data), rownames(cell_annotation_re))
+
+# Add the new metadata to the larger Seurat object
+Endothelial@meta.data[matching_cells, "cell_type"] <- cell_annotation_re[matching_cells, "cell_type"]
+
+# Verify changes
+table(Endothelial@meta.data$cell_type, useNA = "ifany")
+DimPlot(Endothelial, group.by = "cell_type", label=T, label.size = 4, reduction="umap.harmony")
+```
+
+```{r}
+# update cell annotation table
+cell_annotation_re = as.data.frame(Endothelial$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+```
+
+
+### Muscle?
+```{r, fig.width=7, fig.height=5}
+library(Seurat)
+Muscle = subset(Merge_data, harmony_cluster %in% c("8"))
+DimPlot(Muscle, reduction="umap.harmony", group.by = "harmony_cluster")
+```
+
+
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+Muscle <- SCTransform(Muscle, assay="RNA")
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Muscle@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Muscle@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r,fig.width=20, fig.height=5}
+library(SeuratWrappers)
+Muscle <- RunPCA(Muscle, assay="SCT")
+# Elbow plot for dimensions
+Muscle_h <- IntegrateLayers(
+  object = Muscle, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+Muscle_h <- FindNeighbors(Muscle_h, reduction = "harmony", dims = 1:10)
+Muscle_h <- FindClusters(Muscle_h, resolution = 0.05, cluster.name = "harmony_cluster")
+Muscle_h <- RunUMAP(Muscle_h, reduction = "harmony", dims = 1:10, reduction.name = "umap.harmony")
+DimPlot(Muscle_h,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster"),
+  combine = TRUE, label.size = 2
+)
+
+DefaultAssay(Muscle)="SCT"
+Muscle_m <- IntegrateLayers(
+  object = Muscle, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Muscle$orig.ident )
+Muscle_m <- FindNeighbors(Muscle_m, reduction = "Mnn", dims = 1:10)
+Muscle_m <- FindClusters(Muscle_m, resolution = 0.2, cluster.name = "mnn_cluster")
+Muscle_m <- RunUMAP(Muscle_m, reduction = "Mnn", dims = 1:10, reduction.name = "umap.mnn")
+
+DimPlot(Muscle_m,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
+  combine = TRUE, label.size = 2
+) 
+```
+
+
+```{r}
+
+DefaultAssay(Muscle_m)="RNA"
+Muscle_m = JoinLayers(Muscle_m)
+DefaultAssay(Muscle_m)="RNA"
+Muscle = NormalizeData(Muscle_m)
+FeaturePlot(Muscle , features = c("MDM2","CDK4","CD44","DCN","HBB"), reduction="umap.harmony")
+
+
+Idents(Muscle)="mnn_cluster"
+DimPlot(Muscle,
+  reduction = "umap.mnn",
+  group.by = c("scisimilarity_prediction"),
+  combine = TRUE, label.size = 2, label=T)+ theme(legend.position="none")
+DefaultAssay(Muscle)="RNA"
+Muscle_markers = FindAllMarkers(
+  Muscle, 
+  logfc.threshold = 0.5,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+```
+
+```{r}
+Muscle$cell_type=Muscle$mnn_cluster
+cell_type = c("0" = "Muscle", #ribosomal and C1QA
+              "1" = "Muscle", # ribosomal and C1QA
+              "2"="Muscle",
+              "3"="remove",
+              "4"="Muscle")
+
+Muscle@meta.data$cell_type <- as.character(cell_type[as.character(Muscle@meta.data$cell_type)])
+
+# Verify changes
+table(Muscle$cell_type)
+DimPlot(Muscle, group.by = "cell_type", label=T, label.size = 4, reduction="umap.mnn")
+
+## Add the updated annotation
+cell_annotation_re = as.data.frame(Muscle$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+```
+
+
+### Myeloid Cells
+
+
+```{r, fig.width=7, fig.height=5}
+Myeloid = subset(Merge_data, harmony_cluster %in% c("1","4"))
+DimPlot(Myeloid, reduction="umap.harmony", group.by = "harmony_cluster")
+```
+
+
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+Myeloid <- SCTransform(Myeloid, assay="RNA")
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Myeloid@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Myeloid@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r,fig.width=20, fig.height=5}
+DefaultAssay(Myeloid)="SCT"
+library(SeuratWrappers)
+Myeloid <- RunPCA(Myeloid)
+Myeloid_h <- IntegrateLayers(
+  object = Myeloid, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE)
+Myeloid_h <- FindNeighbors(Myeloid_h, reduction = "harmony", dims = 1:15)
+Myeloid_h <- FindClusters(Myeloid_h, resolution = 0.6, cluster.name = "harmony_cluster.0.6")
+Myeloid_h <- RunUMAP(Myeloid_h, reduction = "harmony", dims = 1:15, reduction.name = "umap.harmony")
+DimPlot(Myeloid_h,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster.0.6"),
+  combine = TRUE, label.size = 2)
+
+DefaultAssay(Myeloid)="SCT"
+Myeloid_m <- IntegrateLayers(
+  object = Myeloid, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Myeloid$orig.ident )
+Myeloid_m <- FindNeighbors(Myeloid_m, reduction = "Mnn", dims = 1:15)
+Myeloid_m <- FindClusters(Myeloid_m, resolution = 0.1, cluster.name = "mnn_cluster")
+Myeloid_m <- RunUMAP(Myeloid_m, reduction = "Mnn", dims = 1:15, reduction.name = "umap.mnn")
+
+DimPlot(Myeloid_m,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
+  combine = TRUE, label.size = 2
+) 
+```
+
+
+```{r}
+DefaultAssay(Myeloid_h)="RNA"
+Myeloid_h = JoinLayers(Myeloid_h)
+DefaultAssay(Myeloid_h)="RNA"
+Myeloid = NormalizeData(Myeloid_h)
+FeaturePlot(Myeloid , features = c("MDM2","CDK4","CD44","DCN","HBB"), reduction="umap.harmony")
+Myeloid$harmony_cluster.0.6 =Myeloid_h$harmony_cluster.0.6
+Idents(Myeloid)="harmony_cluster.0.6"
+DimPlot(Myeloid,
+  reduction = "umap.harmony",
+  group.by = c("scisimilarity_prediction"),
+  combine = TRUE, label.size = 2, label=T)+ theme(legend.position="none")
+DefaultAssay(Myeloid)="RNA"
+Myeloid_markers = FindAllMarkers(
+  Myeloid, 
+  logfc.threshold = 0.5,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+DimPlot(Myeloid, group.by=c("scDblFinder.class","doublet_finder"),reduction="umap.harmony", label=T, label.size = 4) + DimPlot(Myeloid, reduction="umap.harmony", label=T, label.size=4)
+```
+
+
+
+```{r}
+DimPlot(Merge_data, cells.highlight = Cells(subset(Myeloid, harmony_cluster.0.6 %in% c("34"))), reduction="umap.harmony")
+```
+
+```{r}
+Myeloid$cell_type=Myeloid$harmony_cluster.0.6
+
+# Map the cluster IDs to the new cell type annotations
+cell_type = c(
+  "0"="Macro", "1"="Macro", "2"="Macro", "3"="Monocyte", "4"="Macro",
+  "5"="Myeloid", "6"="Macro", "7"="Macro", "8"="Macro", "9"="Macro",
+  "10"="Macro", "11"="remove", "12"="DC", "13"="Macro", "14"="Monocyte",
+  "15"="DC", "16"="Myeloid", "17"="Monocyte")
+
+# Replace values in the metadata
+# Assume the column in metadata is named "cell_label"
+Myeloid@meta.data$cell_type <- as.character(cell_type[as.character(Myeloid@meta.data$cell_type)])
+
+# Verify changes
+table(Myeloid$cell_type)
+DimPlot(Myeloid, group.by = "cell_type", label=T, label.size = 4, reduction="umap.harmony")
+
+cell_annotation_re = as.data.frame(Myeloid$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+```
+
+
+###  TCells 
+
+
+```{r, fig.width=7, fig.height=5}
+Tcell = subset(Merge_data, harmony_cluster %in% c("2"))
+DimPlot(Tcell, reduction="umap.harmony", group.by = "harmony_cluster")
+```
+
+
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+Tcell <- SCTransform(Tcell, assay="RNA", )
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Tcell@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Tcell@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r,fig.width=20, fig.height=5}
+library(SeuratWrappers)
+Tcell <- RunPCA(Tcell)
+Tcell_h <- IntegrateLayers(
+  object = Tcell, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+Tcell_h <- FindNeighbors(Tcell_h, reduction = "harmony", dims = 1:15)
+Tcell_h <- FindClusters(Tcell_h, resolution = 0.6, cluster.name = "harmony_cluster.0.6")
+Tcell_h <- RunUMAP(Tcell_h, reduction = "harmony", dims = 1:15, reduction.name = "umap.harmony")
+DimPlot(Tcell_h,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster.0.6"),
+  combine = TRUE, label.size = 2
+)
+
+DefaultAssay(Tcell)="SCT"
+Tcell_m <- IntegrateLayers(
+  object = Tcell, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Tcell$orig.ident )
+Tcell_m <- FindNeighbors(Tcell_m, reduction = "Mnn", dims = 1:15)
+Tcell_m <- FindClusters(Tcell_m, resolution = 0.1, cluster.name = "mnn_cluster")
+Tcell_m <- RunUMAP(Tcell_m, reduction = "Mnn", dims = 1:15, reduction.name = "umap.mnn")
+
+DimPlot(Tcell_m,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
+  combine = TRUE, label.size = 2
+) 
+```
+
+
+```{r}
+DefaultAssay(Tcell_h)="RNA"
+Tcell_h = JoinLayers(Tcell_h)
+DefaultAssay(Tcell_h)="RNA"
+Tcell = NormalizeData(Tcell_h)
+FeaturePlot(Tcell , features = c("MDM2","CDK4","CD44","DCN","HBB"), reduction="umap.harmony")
+
+Idents(Tcell)="harmony_cluster.1.2"
+DimPlot(Tcell,
+  reduction = "umap.harmony",
+  group.by = c("scisimilarity_prediction"),
+  combine = TRUE, label.size = 2, label=T)+ theme(legend.position="none")
+DefaultAssay(Tcell)="RNA"
+Tcell_markers = FindAllMarkers(
+  Tcell, 
+  logfc.threshold = 0.5,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+DimPlot(Tcell, group.by=c("scDblFinder.class","doublet_finder"),reduction="umap.harmony", label=T, label.size = 4) + DimPlot(Tcell, reduction="umap.harmony", label=T, label.size=4)
+```
+
+
+
+```{r}
+DimPlot(Merge_data, cells.highlight = Cells(subset(Tcell, harmony_cluster.0.6 %in% c("34"))), reduction="umap.harmony")
+```
+
+```{r}
+Tcell$cell_type=Tcell$harmony_cluster.1.2
+
+# Map the cluster IDs to the new cell type annotations
+cell_type = c(
+  "0"="Tcell_CD4_helper", "1"="Tcell", "2"="Tcell_CD4_helper", "3"="Tcell", "4"="Tcell_CD8_effector",
+  "5"="Tcell_CD4_Treg", "6"="Tcell_CD8_effector", "7"="Tcell_CD8_effector", "8"="NK", "9"="Tcell_Cd8_cytotoxic",
+  "10"="Tcell_CD4_helper", "11"="NK", "12"="Tcell", "13"="NK", "14"="Tcell",
+  "15"="NK", "16"="Tcell_CD4_effector","17"="remove","18"="Tcell_CD4_Treg","19"="Tcell_CD4_helper","20"="Tcell_CD8_effector","21"="NK","22"="Tcell_CD8_effector","23"="Tcell","24"="Tcell_Cd8_cytotoxic","25"="remove")
+
+# Replace values in the metadata
+# Assume the column in metadata is named "cell_label"
+Tcell@meta.data$cell_type <- as.character(cell_type[as.character(Tcell@meta.data$cell_type)])
+
+# Verify changes
+table(Tcell$cell_type)
+DimPlot(Tcell, group.by = "cell_type", label=T, label.size = 4, reduction="umap.harmony")
+
+cell_annotation_re = as.data.frame(Tcell$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+
+```
+
+###  Bcells
+
+
+```{r, fig.width=7, fig.height=5}
+Bcell = subset(Merge_data, harmony_cluster %in% c("7"))
+DimPlot(Bcell, reduction="umap.harmony", group.by = "harmony_cluster")
+```
+
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+# Count the number of cells per sample
+cell_counts <- table(Bcell$orig.ident)
+
+# Identify samples with at least 5 cells
+valid_samples <- names(cell_counts[cell_counts >= 5])
+
+# Subset the Seurat object to keep only valid samples
+Bcell <- subset(Bcell, subset = orig.ident %in% valid_samples)
+Bcell <- SCTransform(Bcell, assay="RNA")
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Bcell@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Bcell@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r,fig.width=20, fig.height=5}
+library(SeuratWrappers)
+Bcell <- RunPCA(Bcell)
+Bcell_h <- IntegrateLayers(
+  object = Bcell, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+Bcell_h <- FindNeighbors(Bcell_h, reduction = "harmony", dims = 1:15)
+Bcell_h <- FindClusters(Bcell_h, resolution = 0.6, cluster.name = "harmony_cluster.0.6")
+Bcell_h <- RunUMAP(Bcell_h, reduction = "harmony", dims = 1:15, reduction.name = "umap.harmony")
+DimPlot(Bcell_h,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster.0.6"),
+  combine = TRUE, label.size = 2
+)
+
+DefaultAssay(Bcell)="SCT"
+Bcell_m <- IntegrateLayers(
+  object = Bcell, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Bcell$orig.ident )
+Bcell_m <- FindNeighbors(Bcell_m, reduction = "Mnn", dims = 1:15)
+Bcell_m <- FindClusters(Bcell_m, resolution = 0.2, cluster.name = "mnn_cluster.0.2")
+Bcell_m <- RunUMAP(Bcell_m, reduction = "Mnn", dims = 1:15, reduction.name = "umap.mnn")
+
+DimPlot(Bcell_m,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster.0.3"),
+  combine = TRUE, label.size = 2
+) 
+```
+
+
+```{r}
+DefaultAssay(Bcell_m)="RNA"
+Bcell_m = JoinLayers(Bcell_m)
+DefaultAssay(Bcell_m)="RNA"
+Bcell = NormalizeData(Bcell_m)
+FeaturePlot(Bcell , features = c("MDM2","CDK4","CD44","DCN","HBB"), reduction="umap.mnn")
+
+Idents(Bcell)="mnn_cluster.0.3"
+DimPlot(Bcell,
+  reduction = "umap.mnn",
+  group.by = c("scisimilarity_prediction"),
+  combine = TRUE, label.size = 2, label=T)+ theme(legend.position="none")
+DefaultAssay(Bcell)="RNA"
+Bcell_markers = FindAllMarkers(
+  Bcell, 
+  logfc.threshold = 0.2,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+DimPlot(Bcell_m, group.by=c("scDblFinder.class","doublet_finder"),reduction="umap.mnn", label=T, label.size = 4) + DimPlot(Bcell_m, reduction="umap.mnn", label=T, label.size=4)
+```
+
+
+
+```{r}
+DimPlot(Merge_data, cells.highlight = Cells(subset(Bcell, harmony_cluster.0.6 %in% c("34"))), reduction="umap.harmony")
+```
+
+```{r}
+Bcell$cell_type=Bcell$mnn_cluster.0.3
+
+# Map the cluster IDs to the new cell type annotations
+cell_type = c(
+  "0"="Bcell", "1"="Bcell", "2"="Plasma", "3"="Plasma", "4"="Bcell",
+  "5"="Bcell")
+
+# Replace values in the metadata
+# Assume the column in metadata is named "cell_label"
+Bcell@meta.data$cell_type <- as.character(cell_type[as.character(Bcell@meta.data$cell_type)])
+
+# Verify changes
+table(Bcell$cell_type)
+DimPlot(Bcell, group.by = "cell_type", label=T, label.size = 4, reduction="umap.mnn")
+
+cell_annotation_re = as.data.frame(Bcell$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+
+```
+
+## Granulocyte
+```{r, fig.width=7, fig.height=5}
+Granulocyte = subset(Merge_data, harmony_cluster %in% c("9"))
+DimPlot(Granulocyte, reduction="umap.harmony", group.by = "harmony_cluster")
+```
+
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+# Count the number of cells per sample
+cell_counts <- table(Granulocyte$orig.ident)
+
+# Identify samples with at least 5 cells
+valid_samples <- names(cell_counts[cell_counts >= 5])
+
+# Subset the Seurat object to keep only valid samples
+Granulocyte <- subset(Granulocyte, subset = orig.ident %in% valid_samples)
+Granulocyte <- SCTransform(Granulocyte, assay="RNA")
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Granulocyte@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Granulocyte@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+```{r,fig.width=20, fig.height=5}
+library(SeuratWrappers)
+Granulocyte <- RunPCA(Granulocyte)
+Granulocyte_h <- IntegrateLayers(
+  object = Granulocyte, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+Granulocyte_h <- FindNeighbors(Granulocyte_h, reduction = "harmony", dims = 1:15)
+Granulocyte_h <- FindClusters(Granulocyte_h, resolution = 0.2, cluster.name = "harmony_cluster.0.2")
+Granulocyte_h <- RunUMAP(Granulocyte_h, reduction = "harmony", dims = 1:15, reduction.name = "umap.harmony")
+DimPlot(Granulocyte_h,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster.0.2"),
+  combine = TRUE, label.size = 2
+)
+
+DefaultAssay(Granulocyte)="SCT"
+Granulocyte_m <- IntegrateLayers(
+  object = Granulocyte, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Granulocyte$orig.ident )
+Granulocyte_m <- FindNeighbors(Granulocyte_m, reduction = "Mnn", dims = 1:15)
+Granulocyte_m <- FindClusters(Granulocyte_m, resolution = 0.1, cluster.name = "mnn_cluster.0.1")
+Granulocyte_m <- RunUMAP(Granulocyte_m, reduction = "Mnn", dims = 1:15, reduction.name = "umap.mnn")
+
+DimPlot(Granulocyte_m,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster.0.1"),
+  combine = TRUE, label.size = 2
+) 
+```
+
+
+```{r}
+DefaultAssay(Granulocyte_m)="RNA"
+Granulocyte_m = JoinLayers(Granulocyte_m)
+DefaultAssay(Granulocyte_m)="RNA"
+Granulocyte = NormalizeData(Granulocyte_m)
+FeaturePlot(Granulocyte , features = c("TPSB2","CDK4","CD44","DCN","HBB"), reduction="umap.mnn")
+
+Idents(Granulocyte)="mnn_cluster.0.2"
+DimPlot(Granulocyte,
+  reduction = "umap.mnn",
+  group.by = c("scisimilarity_prediction"),
+  combine = TRUE, label.size = 2, label=T)+ theme(legend.position="none")
+DefaultAssay(Granulocyte)="RNA"
+Granulocyte_markers = FindAllMarkers(
+  Granulocyte, 
+  logfc.threshold = 0.2,  # LogFC threshold, meaning we want at least a 2-fold change
+  min.pct = 0.25,         # Minimum fraction of cells in the cluster where the gene should be expressed
+  thresh.use = 0.05,      # P-value threshold to identify significant markers
+  test.use = "wilcox",    # Statistical test to use (Wilcoxon by default)
+  only.pos = TRUE         # Only return markers with positive logFC (over-expressed in the cluster)
+)
+DimPlot(Granulocyte_m, group.by=c("scDblFinder.class","doublet_finder"),reduction="umap.mnn", label=T, label.size = 4) + DimPlot(Granulocyte_m, reduction="umap.mnn", label=T, label.size=4)
+```
+```{r}
+DimPlot(Merge_data, cells.highlight = Cells(subset(Granulocyte, harmony_cluster.0.6 %in% c("34"))), reduction="umap.harmony")
+```
+
+```{r}
+Granulocyte$cell_type=Granulocyte$mnn_cluster.0.2
+
+# Map the cluster IDs to the new cell type annotations
+cell_type = c(
+  "0"="Mast", "1"="Mast")
+
+# Replace values in the metadata
+# Assume the column in metadata is named "cell_label"
+Granulocyte@meta.data$cell_type <- as.character(cell_type[as.character(Granulocyte@meta.data$cell_type)])
+
+# Verify changes
+table(Granulocyte$cell_type)
+DimPlot(Granulocyte, group.by = "cell_type", label=T, label.size = 4, reduction="umap.mnn")
+
+cell_annotation_re = as.data.frame(Granulocyte$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+
+```
+```{r}
+cell_annotation = as.data.frame(ASPC$cell_type)
+colnames(cell_annotation)=c("cell_type")
+## Add the updated annotation
+cell_annotation_re = as.data.frame(Muscle$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+cell_annotation_re = as.data.frame(Endothelial$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+cell_annotation_re = as.data.frame(Bcell$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+cell_annotation_re = as.data.frame(Myeloid$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+cell_annotation_re = as.data.frame(Bcell$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+cell_annotation_re = as.data.frame(Granulocyte$cell_type)
+colnames(cell_annotation_re)="cell_type"
+cell_annotation = rbind(cell_annotation,cell_annotation_re)
+
+
+Merge_data$cell_type=cell_annotation
+DimPlot(Merge_data, group.by = "cell_type", label=T, label.size = 4, raster=F, reduction="umap.harmony")
+Merge_data$cell_type[is.na(Merge_data$cell_type)] <- "remove"
+Merge_data_f = subset(Merge_data, cell_type %in% c("remove"), invert=T)
+DimPlot(Merge_data_f, group.by = "cell_type", label=T, label.size = 4, raster=F, reduction="umap.harmony")
+```
