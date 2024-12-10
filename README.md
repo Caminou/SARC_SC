@@ -9,27 +9,30 @@ Both datasets have been processed, QC and analyzed in the same way:
 - [x] [Wrangling and Demultiplexing](https://github.com/Caminou/SARC_SC/Load_Seurat/)
 - [x] [QC](https://caminou.github.io/SARC_SC/QC/QC.html)
 - [X] [Ambient RNA removal](https://github.com/Caminou/SARC_SC/blob/main/Ambient_RNA/)
-- [X] [Doublet removal](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
+- [X] [Doublet annotation](https://github.com/Caminou/SARC_SC/blob/main/Doublet_removal)
 ##### 2) Data Integration
 - [X] [Tumor biopsies](https://github.com/Caminou/SARC_SC/tree/main/Integration/Tumor)
   - [x] Harmony
   - [x] SCVI
   - [x] Wnn
-- [ ] [Gruel et al](https://github.com/Caminou/SARC_SC/tree/main/Integration/Gruel)
+- [X] [Gruel et al](https://github.com/Caminou/SARC_SC/tree/main/Integration/Gruel)
   - [x] Harmony
-  - [ ] SCVI
+  - [X] SCVI
   - [x] Wnn
-- [ ] Tumor and Gruel together
+- [X] Tumor and Gruel together
   - [x] Harmony
-  - [ ] SCVI
+  - [X] SCVI
   - [x] Wnn
 ##### 4) Cell-type prediction
 - [X] [Azimuth](https://github.com/Caminou/SARC_SC/blob/main/Integration/Integration_Tumor.Rmd#L64)
-- [ ] SCimilarity from HCA
+- [X] SCimilarity from HCA
 ##### 5) Clean cell-type annotation
+- [X] Done, removal of cluster doublets and other cells
 ##### 6) CNV for Tumor-cell identification
 - [ ] Copykat
 - [ ] SCEVAN
+- [ ] InferCNV
+- [ ] ScATOMIC
 ##### 7) PDSC mapping and label transfer
 - [ ] Seurat label transfer
 - [ ] Seurat mapping
