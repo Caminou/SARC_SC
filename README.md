@@ -29,10 +29,10 @@ Both datasets have been processed, QC and analyzed in the same way:
 ##### 5) Clean cell-type annotation
 - [X] Done, removal of cluster doublets and other cells
 ##### 6) CNV for Tumor-cell identification
-- [ ] Copykat
-- [ ] SCEVAN
+- [X] Copykat
+- [X] SCEVAN
 - [ ] InferCNV
-- [ ] ScATOMIC
+- [X] ScATOMIC
 ##### 7) PDSC mapping and label transfer
 - [ ] Seurat label transfer
 - [ ] Seurat mapping
