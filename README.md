@@ -31,11 +31,16 @@ Both datasets have been processed, QC and analyzed in the same way:
 ##### 6) CNV for Tumor-cell identification
 - [X] Copykat
 - [X] SCEVAN
-- [ ] InferCNV
+- [X] InferCNV
 - [X] ScATOMIC
 ##### 7) PDSC mapping and label transfer
-- [ ] Seurat label transfer
-- [ ] Seurat mapping
+- [X] Seurat label transfer
+- [X] Seurat mapping
+##### 7.1) CNV in PDSC cells
+- [] Copykat
+- [] SCEVAN
+- [] InferCNV
+- [] ScATOMIC
 ##### 8) Grouping tumor cells by MDM2 expression
 - [ ] Gene signatures
 - [ ] Cell proportion among patients 
