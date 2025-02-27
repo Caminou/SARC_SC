@@ -1,0 +1,303 @@
+---
+title: "Integration_Gruel_and_Tumor"
+author: "Camino RSM"
+date: "2024-11-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+## Load Seurat, add metadata
+```{r}
+
+library(Seurat)
+library(harmony)
+library(SeuratDisk)
+library(dplyr)
+library(parallel)
+# Get the number of cores
+total_cores <- detectCores()
+# Use all but 2 cores
+options(mc.cores = total_cores - 2)
+
+Gruel = readRDS("/var/RDI_group/camino_sandbox/Gruel_f_Soup_doublet.rds")
+Tumor = readRDS("/var/RDI_group/camino_sandbox/SARC_Tumor_f_Soup_doublet.rds")
+
+Tumor@assays$SCT = NULL
+DefaultAssay(Tumor)="RNA"
+Gruel@assays$SCT = NULL
+DefaultAssay(Gruel)="RNA"
+
+Merge_data = merge(Tumor,Gruel)
+
+Merge_data$Cell_barcodes = Cells(Merge_data)
+
+# Check order is correct
+if (!all(rownames(Merge_data@meta.data) == Cells(Merge_data))) {
+  stop("Reordering failed: cell barcodes do not match.")
+}
+
+
+metadata = read.csv("/var/RDI_group/camino_sandbox/PDSC_scRNAseq_metadata_VY20241003.csv")
+
+# Correct hSC26 naming
+new_metadata <- metadata %>%
+  distinct(biosample, .keep_all = TRUE) %>%  # Keep only unique `biosample` rows
+  mutate(
+    biosample = case_when(
+      biosample == "hSC26_adj" ~ "hSC26_AdjNorm",  # Replace specific value
+      biosample == "hSC26_t" ~ "hSC26_ddLPS",     # Replace another specific value
+      TRUE ~ biosample                             # Keep the rest unchanged
+    )
+  )
+# Create a cell-by-cell data.frame
+new_metadata$Run = NULL
+rownames(new_metadata)=new_metadata$biosample
+new_metadata$orig.ident = new_metadata$biosample
+updated_metadata <- merge(
+  x = Merge_data@meta.data, 
+  y = new_metadata, 
+  by = "orig.ident", 
+  all.x = TRUE  # Keeps all cells in the Seurat object
+)
+rownames(updated_metadata)=updated_metadata$Cell_barcodes
+# reorder the cells in the same way as seurat object
+updated_metadata = updated_metadata[Cells(Merge_data),]
+
+## Load info from DoubletFinder
+SARC_doublet = read.csv("/var/RDI_group/camino_sandbox/SC_linux/SARC_PDSC_DoubletFinder.csv", sep=" ")
+Gruel_doublet = read.csv("/var/RDI_group/camino_sandbox/SC_linux/Gruel_DoubletFinder.csv", sep=" ")
+
+DoubletFinder_full = rbind(SARC_doublet, Gruel_doublet)
+DoubletFinder_full$Cell_barcodes = rownames(DoubletFinder_full)
+updated_metadata <- merge(
+  x = updated_metadata,
+  y = DoubletFinder_full, 
+  by = "Cell_barcodes", 
+  all.x = TRUE  # Keeps all cells in the Seurat object
+)
+
+rownames(updated_metadata)=updated_metadata$Cell_barcodes
+
+updated_metadata = updated_metadata[Cells(Merge_data),]
+
+# Check order is correct
+if (!all(rownames(updated_metadata) == Cells(Merge_data))) {
+  stop("Reordering failed: cell barcodes do not match.")
+}
+
+
+# Update the Seurat object's metadata
+Merge_data@meta.data <- updated_metadata
+table(Merge_data$orig.ident)
+
+table(Merge_data$orig.ident)
+```
+
+### I will not remove DOUBLETS at all, so I can see how they cluster and the difference between scDoubletFinder and DoubletFinder!! ####
+
+### Remove ENSG genes that were unmapped from all assays
+```{r}
+# Extract gene names starting with "ENSG" from the Merge_data object
+ENS_genes <- Merge_data@assays[["RNA"]]@counts@Dimnames[[1]][grepl("^ENSG", Merge_data@assays[["RNA"]]@counts@Dimnames[[1]])]
+# Extract gene names from SCT assay
+Total_genes <- rownames(Merge_data@assays[["RNA"]]@counts)
+# Remove the identified genes from the SCT assay
+Merge_data@assays[["RNA"]] <- subset(Merge_data@assays[["RNA"]], features = Total_genes[!Total_genes %in% ENS_genes])
+cat("Number of genes removed:", (length(Total_genes) -nrow(Merge_data@assays[["RNA"]])), "\n")
+```
+
+## Cell-type prediction using Azimuth
+```{r}
+library(Azimuth)
+DefaultAssay(Merge_data)="RNA"
+Merge_data <- RunAzimuth(Merge_data, reference="adiposeref", )
+table(Merge_data$predicted.celltype.l1)
+```
+
+## Splitting the RNA assay on layers by orig.ident --> one count and one data for each orig.ident
+```{r}
+Merge_data
+Merge_data[["RNA"]] <- split(Merge_data[["RNA"]], f = Merge_data$orig.ident)
+Merge_data
+```
+
+# Normalize Data using SCT
+```{r}
+library(future)
+options(future.globals.maxSize=40000*1024^2)
+Merge_data <- SCTransform(Merge_data, assay="RNA")
+```
+
+## Remove genes known to be distorting the clustering (HSP/VDJ genes)
+```{r}
+### Remove genes that distort the clustering (HSP/VDJ genes)
+vdj_genes <- c(
+    "TRAV1-1", "TRAV1-2", "TRAV1-3", "TRAV2", "TRAV3", "TRAV4", "TRAV5", "TRAV6", "TRAV7", "TRAV8",
+    "TRBV1", "TRBV2", "TRBV3", "TRBV4", "TRBV5", "TRBV6", "TRBV7", "TRBV8", "TRBV9", "TRBV10",
+    "TRGV1", "TRGV2", "TRGV3", "TRGV4", "TRGV5", "TRGV6", "TRGV7", "TRGV8",
+    "TRDV1", "TRDV2", "TRDV3", "TRDV4",
+    "IGHV1-1", "IGHV1-2", "IGHV1-3", "IGHV2-5", "IGHV2-6", "IGHV3-1", "IGHV3-2", "IGHV3-3",
+    "IGKV1-1", "IGKV1-2", "IGKV1-3", "IGKV2-5", "IGKV2-6", "IGKV3-1", "IGKV3-2", "IGKV3-3",
+    "IGLV1-1", "IGLV1-2", "IGLV1-3", "IGLV2-14", "IGLV2-15", "IGLV3-1", "IGLV3-2", "IGLV3-3"
+)
+hsp_genes <- c(
+    "HSPA1A", "HSPA1B", "HSPA2", "HSPA5", "HSPA6", "HSPA7", "HSPA8", "HSPA9", "HSPA12A", "HSPA12B",
+    "HSP90AA1", "HSP90AB1", "HSP90B1", "HSP90C1",
+    "HSPD1", "CCT2", "CCT3", "CCT4", "CCT5", "CCT6A", "CCT6B",
+    "DNAJA1", "DNAJA2", "DNAJA3", "DNAJB1", "DNAJB2", "DNAJB4", "DNAJB5", "DNAJC1", "DNAJC2",
+    "HSPE1", 
+    "HSPB1", "HSPB2", "HSPB3", "HSPB6", "HSPB7", "HSPB8", "HSPB9", "HSPB11",
+    "HSPH1", "HSPH2", "HSPC1", "HSPC2"
+)
+
+
+# Combine all genes to be removed (VDJ, HSP)
+genes_to_remove <- unique(c(vdj_genes, hsp_genes))
+
+# get genes present in SCT
+SCT_genes =Merge_data@assays[["SCT"]]@var.features
+# Identify which of the genes to be removed are present in the SCT assay
+genes_in_SCT <- SCT_genes[SCT_genes %in% genes_to_remove]
+
+# Count how many genes are being removed
+num_genes_removed <- length(genes_in_SCT)
+
+# Remove the identified genes 
+Merge_data@assays[["SCT"]]@var.features <- SCT_genes[!SCT_genes %in% genes_in_SCT]
+
+# Print the number of genes removed
+cat("Number of genes removed from the SCT assay:", num_genes_removed, "\n")
+```
+
+## Harmony Integration
+```{r}
+Merge_data <- RunPCA(Merge_data)
+Merge_data <- IntegrateLayers(
+  object = Merge_data, method = HarmonyIntegration,
+  orig.reduction = "pca", new.reduction = "harmony",
+  verbose = FALSE
+)
+```
+
+```{r}
+ElbowPlot(Merge_data, ndims = 50)
+```
+
+```{r,fig.width=20, fig.height=5}
+Merge_data <- FindNeighbors(Merge_data, reduction = "harmony", dims = 1:20)
+Merge_data <- FindClusters(Merge_data, resolution = 0.1, cluster.name = "harmony_cluster")
+Merge_data <- RunUMAP(Merge_data, reduction = "harmony", dims = 1:20, reduction.name = "umap.harmony")
+DimPlot(Merge_data,
+  reduction = "umap.harmony",
+  group.by = c("orig.ident", "predicted.celltype.l1", "harmony_cluster"),
+  combine = TRUE, label.size = 2
+)
+```
+
+## Mnn Integration
+```{r, fig.width=20, fig.height=5}
+library(SeuratWrappers)
+DefaultAssay(Merge_data)="SCT"
+Merge_data <- IntegrateLayers(
+  object = Merge_data, method = FastMNNIntegration,
+  new.reduction = "Mnn",
+  verbose = FALSE,  batch= Merge_data$orig.ident )
+Merge_data <- FindNeighbors(Merge_data, reduction = "Mnn", dims = 1:20)
+Merge_data <- FindClusters(Merge_data, resolution = 0.5, cluster.name = "mnn_cluster")
+Merge_data <- RunUMAP(Merge_data, reduction = "Mnn", dims = 1:20, reduction.name = "umap.mnn")
+
+DimPlot(Merge_data,
+  reduction = "umap.mnn",
+  group.by = c("orig.ident", "predicted.celltype.l1", "mnn_cluster"),
+  combine = TRUE, label.size = 2
+)
+```
+
+## SCVI Integration
+```{r, fig.width=20, fig.height=5}
+library(reticulate)
+library(future)
+plan("multiprocess",n_cores)
+plan()
+use_condaenv("r-reticulate", required = TRUE)
+#set multiprocessing cores
+multiprocessing <- import("multiprocessing")
+joblib <- import("joblib")
+# Detect total cores in Python from R
+total_cores <- multiprocessing$cpu_count()
+n_cores <- total_cores - 4
+
+cat(sprintf("Using %d out of %d cores\n", n_cores, total_cores))
+
+DefaultAssay(Merge_data)="RNA"
+Merge_data_j = JoinLayers(Merge_data)
+obj_SCVI_epoc<-IntegrateLayers(object=Merge_data_j, orig.reduction = "pca", method=scVIIntegration, new.reduction='integrated.scvi', conda_env="r-reticulate", group.by = "orig.ident", features = Merge_data_j@assays[["SCT"]]@var.features, ) #use the same features as in the previous 
+obj_SCVI <- FindNeighbors(obj_SCVI, reduction = "integrated.scvi", dims = 1:30)
+obj_SCVI <- FindClusters(obj_SCVI, resolution = 0.5, cluster.name = "scvi_clusters")
+obj_SCVI <- RunUMAP(obj_SCVI, reduction = "integrated.scvi", dims = 1:30, reduction.name = "umap.scvi")
+DimPlot(obj_SCVI, reduction="umap.scvi", raster=F, group.by = c("orig.ident", "predicted.celltype.l1","Sarcoma_type"))
+```
+
+```{r}
+saveRDS(obj_SCVI, "./SC_linux/SCVI_obj.rds")
+saveRDS(Merge_data, "/SC_linux/SARC_Tumor_Gruel_harmony_mnn.rds")
+```
+## Calculate lisi score
+```{r, fig.width=6, fig.height=7}
+Merge_data$lisi_harmony <- lisi::compute_lisi(Merge_data@reductions[["umap.harmony"]]@cell.embeddings, Merge_data@meta.data, "orig.ident")
+Merge_data$lisi_mnn <- lisi::compute_lisi(Merge_data@reductions[["umap.mnn"]]@cell.embeddings, Merge_data@meta.data, "orig.ident")
+obj_SCVI$lisi_scvi<- lisi::compute_lisi(obj_SCVI@reductions[["umap.scvi"]]@cell.embeddings, Merge_data@meta.data, "orig.ident")
+## Higher lisi means better mix between samples :)
+summary(Merge_data$lisi_harmony)
+summary(Merge_data$lisi_mnn)
+summary(obj_SCVI$lisi_scvi)
+library(ggplot2)
+# Generate the plots
+FeaturePlot(Merge_data, features = c("lisi_harmony"), reduction = "umap.harmony") + FeaturePlot(Merge_data, features=c("lisi_mnn"), reduction="umap.mnn")+ FeaturePlot(obj_SCVI, features = c("lisi_scvi"), reduction = "umap.scvi")
+```
+
+```{r}
+custom_colors <- c(
+  "GSM6876510" = "#FF64B0", 
+  "GSM6876511" = "#FF699C", 
+  "GSM6876512" = "#FD6F86", 
+  "GSM6876513" = "#FF61C3", 
+  "GSM6876514" = "#FC61D4", 
+  "GSM6876515" = "#F8766D", 
+  "GSM6876516" = "#F17D50", 
+  "GSM6876517" = "#E88526", 
+  "GSM6876518" = "#DE8C00", 
+  "GSM6876519" = "#D39200", 
+  "GSM6876520" = "#C69900", 
+  "GSM6876521" = "#B79F00", 
+  "GSM6876522" = "#A6A400", 
+  "GSM6876523" = "#93AA00", 
+  "GSM6876524" = "#7CAE00", 
+  "GSM6876525" = "#5EB300", 
+  "GSM6876526" = "#2BB600", 
+  "GSM6876527" = "#00BA38", 
+  "GSM6876528" = "#00BC5A", 
+  "GSM6876529" = "#00BF74", 
+  "GSM6876530" = "#00C08B", 
+  "GSM6876531" = "#00C19F", 
+  "GSM6876532" = "#00C0B3", 
+  "GSM6876533" = "#00BFC4", 
+  "GSM6876534" = "#00BDD5", 
+  "GSM6876535" = "#00B9E3", 
+  "GSM6876536" = "#00B4F0", 
+  "GSM6876537" = "#00ADFA", 
+  "GSM6876538" = "#00A5FF", 
+  "GSM6876539" = "#619CFF", 
+  "GSM6876540" = "#8E92FF", 
+  "hSC26_AdjNorm" = "#DE8C00", 
+  "hSC26_ddLPS" = "#C77CFF", 
+  "hSC72_t" = "#00BFC4", 
+  "hSC81_t" = "#EA6AF1", 
+  "hSC92_t" = "#5EB300"
+)
+# Create the DimPlot with custom colors
+DimPlot(Merge_data,  reduction = "umap.harmony", split.by = "Hospital", group.by = "orig.ident", cols = custom_colors, raster=F) + DimPlot(Merge_data, reduction = "umap.harmony", group.by="predicted.celltype.l1", raster=F, label = T)
+```

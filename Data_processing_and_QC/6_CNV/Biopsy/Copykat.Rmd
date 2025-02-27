@@ -1,0 +1,151 @@
+
+############# Copykat prediction ################
+```{r}
+library(magrittr)
+library(glue)
+library(Seurat)
+library(plyr)
+library(dplyr)
+library(data.table)
+library(randomForest)
+library(caret)
+library(parallel)
+library(reticulate)
+library(Rmagic)
+library(Matrix)
+library(agrmt)
+library(copykat)
+library(ggplot2)
+library(stringr)
+library(future)
+library(future.apply)
+library(doParallel)
+```
+
+# Get Data, metadata and filter
+```{r}
+Tumor_ASPC_T = readRDS("~/Desktop/sc_RNAseq/Final_Annotated_objects/ASPC_tcells_endot.rds")
+DimPlot(Tumor_ASPC_T, reduction="umap.harmony", group.by = "cell_type")
+
+```
+
+#### Copykat ####
+
+## Running both Endoth and T-cells as baseline
+```{r}
+#run copykat
+DefaultAssay(Tumor_ASPC_T)="RNA"   
+
+for (ident in (unique(Tumor_ASPC_T@meta.data$orig.ident))) {
+  message("Reading...", ident)
+  setwd("~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat_outputs_T_endo/")
+  output_dir="~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat_outputs_T_endo/"
+  # Subset the Seurat object by orig.ident
+  seurat_subset <- subset(Tumor_ASPC_T, subset = orig.ident == ident)
+  normal_cells = as.vector(Cells(subset(seurat_subset, cell_type %in%  c("Tcell_CD4_helper","Tcell_CD4_Treg","Tcell_CD8_cytotoxic","Tcell_CD8_effector","Tcell", "Endothelial"))))
+  # Extract the RNA count matrix (as a sparse matrix)
+  rna_matrix <- (seurat_subset@assays$RNA$counts)
+  # Create a directory for the current orig.ident
+  ident_dir <- file.path(output_dir, ident)
+  dir.create(ident_dir, showWarnings = FALSE)
+  setwd(ident_dir)
+  # Run the copykat function
+  copykat_results = copykat(rna_matrix, norm.cell.names = normal_cells,genome="hg20",n.cores=5,id.type="S")
+  # Save the results to the corresponding directory
+  # Adjust the file name and format as needed
+  saveRDS(copykat_results, file = file.path(paste0(ident, "_copykat_results.rds")))
+  message("Finished...", ident)
+  rm(copykat_results, rna_matrix, seurat_subset,normal_cells)
+  gc()
+}
+```
+### Summarize results
+```{r}
+setwd("~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat/")
+summarize_results <- function(seurat){
+  copykat = data.frame()
+  # copykat
+for (ident in (unique(Tumor_ASPC_T@meta.data$orig.ident))){
+    data = readRDS(paste0("~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat/Copykat_outputs_T/", ident,"/", ident,"_copykat_results.rds"))
+    data = data[["prediction"]]
+    data$copykat.pred[data$copykat.pred == "aneuploid"] <- "aneuploid"
+    data$copykat.pred[data$copykat.pred == "diploid"] <- "diploid"
+    data$copykat.pred[data$copykat.pred == "no"] <- "no"
+    # scatomic
+    copykat = dplyr::bind_rows(copykat, data)
+  }
+  write.csv(copykat, "~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat/Copykat_outputs_T/copykat_results.csv")
+}
+summarize_results(Tumor_ASPC_T)
+```
+## Running T-cells as baseline
+```{r}
+#run copykat
+DefaultAssay(Tumor_ASPC_T)="RNA"
+
+Tumor_ASPC_T = subset(Tumor_ASPC_T, orig.ident %in% c("hSC92_t","hSC81_t","hSC72_t","hSC26_ddLPS","hSC26_AdjNorm", "GSM6876511","GSM6876510","GSM6876512","GSM6876514","GSM6876515","GSM6876516","GSM6876517"), invert=T)
+gc()
+
+for (ident in (unique(Tumor_ASPC_T@meta.data$orig.ident))) {
+  message("Reading...", ident)
+  setwd("~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat_outputs_T")
+  output_dir="~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat_outputs_T/"
+  # Subset the Seurat object by orig.ident
+  seurat_subset <- subset(Tumor_ASPC_T, subset = orig.ident == ident)
+  seurat_subset =subset(seurat_subset, cell_type %in% c("Endothelial") , invert=T)
+  normal_cells = as.vector(Cells(subset(seurat_subset, cell_type %in%  c("Tcell_CD4_helper","Tcell_CD4_Treg","Tcell_CD8_cytotoxic","Tcell_CD8_effector","Tcell"))))
+  # Extract the RNA count matrix (as a sparse matrix)
+  rna_matrix <- (seurat_subset@assays$RNA$counts)
+  # Create a directory for the current orig.ident
+  ident_dir <- file.path(output_dir, ident)
+  dir.create(ident_dir, showWarnings = FALSE)
+  setwd(ident_dir)
+  # Run the copykat function
+  copykat_results = copykat(rna_matrix, norm.cell.names = normal_cells,genome="hg20",n.cores=5,id.type="S")
+  # Save the results to the corresponding directory
+  # Adjust the file name and format as needed
+  saveRDS(copykat_results, file = file.path(paste0(ident, "_copykat_results.rds")))
+  message("Finished...", ident)
+  rm(copykat_results, rna_matrix, seurat_subset,normal_cells)
+  gc()
+}
+
+```
+ 
+ ## Running Endothelila as baseline
+```{r}
+#run copykat
+DefaultAssay(Tumor_ASPC_T)="RNA"
+
+for (ident in (unique(Tumor_ASPC_T@meta.data$orig.ident))) {
+  message("Reading...", ident)
+  setwd("~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat_outputs_T_Endot/")
+  output_dir="~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/Copykat_outputs_T_Endot/"
+  # Subset the Seurat object by orig.ident
+  seurat_subset <- subset(Tumor_ASPC_T, subset = orig.ident == ident)
+  seurat_subset <- subset(Tumor_ASPC_T, cell_type %in% c("Tcell_CD4_helper","Tcell_CD4_Treg","Tcell_CD8_cytotoxic","Tcell_CD8_effector","Tcell"), invert=T)
+  normal_cells = as.vector(Cells(subset(seurat_subset, cell_type %in%  c("Endothelial"))))
+  # Extract the RNA count matrix (as a sparse matrix)
+  rna_matrix <- (seurat_subset@assays$RNA$counts)
+  # Create a directory for the current orig.ident
+  ident_dir <- file.path(output_dir, ident)
+  dir.create(ident_dir, showWarnings = FALSE)
+  setwd(ident_dir)
+  # Run the copykat function
+  copykat_results = copykat(rna_matrix, norm.cell.names = normal_cells,genome="hg20",n.cores=5,id.type="S")
+  # Save the results to the corresponding directory
+  # Adjust the file name and format as needed
+  saveRDS(copykat_results, file = file.path(paste0(ident, "_copykat_results.rds")))
+  message("Finished...", ident)
+  rm(copykat_results, rna_matrix, seurat_subset,normal_cells)
+  gc()
+}
+```
+ 
+ 
+
+### Add results to metadata to visualize
+```{r}
+copykat_results = read.csv("/home/caminors/Documents/crsm_laptop/CNV/copykat_results.csv")
+copykat_results = co
+````

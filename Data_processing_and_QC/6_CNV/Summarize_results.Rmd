@@ -1,0 +1,316 @@
+### Get CNV information from SCEVAN and Copykatin Biopsies ###
+
+```{r}
+############################# 1) SCEVAN ################################
+################## CNRatio
+# Define the directory containing sample files
+sample_dir <- "~/camino_sandbox/R_pipelines/CNV/SCEVAN_outputs/"
+# List of sample IDs to process
+sample_ids <- unique(Biopsy$orig.ident)# Add all your sample IDs here
+# Initialize an empty data frame to store results for all samples
+all_biopsy <- data.frame(
+  seqnames = numeric(),
+  start = numeric(),
+  end = numeric(),
+  gene_id = character(),
+  gene_name = character(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each sample
+for (sample_id in sample_ids) {
+  # Define file paths for the count matrix and CNA matrix
+  count_mtx_path <- file.path(sample_dir, sample_id, "output/_count_mtx_annot.RData")
+  CNA_mtx_path <- file.path(sample_dir, sample_id, "output/_CNAmtx.RData")
+  
+  # Check if files exist
+  if (file.exists(count_mtx_path) && file.exists(CNA_mtx_path)) {
+    message("Reading sample: ", sample_id)
+    # Load the data
+    load(count_mtx_path)  # Loads count_mtx_annot
+    load(CNA_mtx_path)    # Loads CNA_mtx_relat
+    
+    all_data = cbind(count_mtx_annot, CNA_mtx_relat)
+    # Extract data for chromosome 12 within the specified range
+    # Combine with the overall data frame
+    all_biopsy <- all_biopsy %>%
+      full_join(all_data, by = c("seqnames","start","end","gene_id","gene_name"))
+    
+  } else {
+    # Print a warning if files are missing
+    warning("Files not found for sample: ", sample_id)
+  }
+}
+## Add GSM12 and GSM36 information
+# Loop through each sample
+sample_ids = c("GSM6876512","GSM6876536")
+
+directories = directories[grepl("chunk", directories) & grepl("/output", directories)]
+for (folder in directories) {
+  # Define file paths for the count matrix and CNA matrix
+  count_mtx_path <- file.path(folder,"/_count_mtx_annot.RData")
+  CNA_mtx_path <- file.path(folder,"/_CNAmtx.RData")
+  
+  # Check if files exist
+  if (file.exists(count_mtx_path) && file.exists(CNA_mtx_path)) {
+    message("Reading sample: ", folder)
+    # Load the data
+    load(count_mtx_path)  # Loads count_mtx_annot
+    load(CNA_mtx_path)    # Loads CNA_mtx_relat
+    
+    all_data = cbind(count_mtx_annot, CNA_mtx_relat)
+    # Extract data for chromosome 12 within the specified range
+    
+    # Combine with the overall data frame
+    all_biopsy <- all_biopsy %>%
+      full_join(all_data, by = c("seqnames","start","end","gene_id","gene_name"))
+    
+  } else {
+    # Print a warning if files are missing
+    warning("Files not found for sample: ", sample_id)
+  }
+}
+
+write.csv(all_biopsy, "~/camino_sandbox/R_pipelines/CNV/CNV_final_results/Scevan_biopsy_cnratio.csv")
+############################# Prediction
+sample_dir <- "~/camino_sandbox/R_pipelines/CNV/SCEVAN_outputs"
+sample_ids = dir(sample_dir)
+sample_ids = sample_ids[grepl("hSC", sample_ids)]
+
+scevan_results = data.frame()
+excluded_idents <- c("GSM6876512", "GSM6876536", "GSM6876528")
+for (ident in unique(sample_ids)) {
+  if (ident %in% excluded_idents) {
+    next()
+  } else {
+    data <- readRDS(paste0("~/camino_sandbox/R_pipelines/CNV/SCEVAN_outputs/", ident, "/", ident, "_scevan_results.rds"))
+    scevan_results <- rbind(scevan_results, data)
+  }
+}
+results = rbind(readRDS("~/camino_sandbox/R_pipelines/CNV/SCEVAN_outputs/GSM6876512/GSM6876512_scevan_results.rds"), readRDS("~/camino_sandbox/R_pipelines/CNV/SCEVAN_outputs/GSM6876536/GSM6876536_scevan_results.rds"))
+row.names(results)=results$Cell_barcodes
+results$Cell_barcodes=NULL
+scevan_results = rbind(scevan_results, results)
+write.csv(scevan_results, "~/camino_sandbox/R_pipelines/CNV/SCEVAN_outputs/Biopsy_scevan_results.csv")
+
+############################# 2) COPYKAT #############################
+####################### CN Ratio
+# List of sample IDs to process
+sample_ids <- unique(Biopsy$orig.ident)# Add all your sample IDs here
+# Initialize an empty data frame to store results for all samples
+copykat_Biopsy_data <- data.frame(
+  chrom = numeric(),
+  chrompos = numeric(),
+  abspos = numeric(),
+  stringsAsFactors = FALSE
+)
+# Loop through each sample
+for (sample_id in sample_ids) {
+  message("Reading sample: ", sample_id)
+  # Define file paths for the count matrix and CNA matrix
+  data = readRDS(paste0("~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_outputs_Endot/", sample_id,"/",sample_id,"_copykat_results.rds"))
+  CNAmat = as.data.frame(data[["CNAmat"]])
+  # Combine with the overall data frame
+  copykat_Biopsy_data <- copykat_Biopsy_data %>%
+    full_join(CNAmat, by = c("chrom","chrompos","abspos"))
+}
+colnames(copykat_Biopsy_data)<- gsub("\\.", "-", colnames(copykat_Biopsy_data))
+write.csv(copykat_Biopsy_data, "~/camino_sandbox/R_pipelines/CNV/CNV_final_results/copykat_Biopsy_cnratio.csv")
+
+######################### Prediction
+setwd("~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_outputs_Endot/")
+sample_ids <- unique(Biopsy$orig.ident) 
+summarize_results <- function(sample_ids){
+  copykat = data.frame()
+  # copykat
+for (ident in (unique(sample_ids))){
+    data = readRDS(paste0("./Copykat_outputs_Endot/", ident,"/", ident,"_copykat_results.rds"))
+    data = data[["prediction"]]
+    data$copykat.pred[data$copykat.pred == "aneuploid"] <- "aneuploid"
+    data$copykat.pred[data$copykat.pred == "diploid"] <- "diploid"
+    data$copykat.pred[data$copykat.pred == "no"] <- "no"
+    # scatomic
+    copykat = dplyr::bind_rows(copykat, data)
+  write.csv(copykat, "~/Desktop/sc_RNAseq/sc_RNAseq_processing/CNV/  Copykat_outputs_Endot/copykat_results.csv")
+  return(copykat)
+}
+summarize_results(sample_ids)
+```
+
+### Get CNV information from Scevan and Copykat in PDSC ###
+```{r}
+
+############################# 1) SCEVAN #############################
+####################### CNratio
+sample_dir <- "~/camino_sandbox/R_pipelines/CNV/SCEVAN_PDSC/"
+
+# List of sample IDs to process
+sample_ids <- unique(PDSC_f$orig.ident)# Add all your sample IDs here
+
+# Initialize an empty data frame to store results for all samples
+all_PDSC <- data.frame(
+  seqnames = numeric(),
+  start = numeric(),
+  end = numeric(),
+  gene_id = character(),
+  gene_name = character(),
+  stringsAsFactors = FALSE
+)
+
+directories = list.dirs(sample_dir)
+directories = directories[grepl("chunk", directories) & grepl("/output", directories)]
+
+for (folder in directories) {
+  # Define file paths for the count matrix and CNA matrix
+  count_mtx_path <- file.path(folder,"/_count_mtx_annot.RData")
+  CNA_mtx_path <- file.path(folder,"/_CNAmtx.RData")
+  
+  # Check if files exist
+  if (file.exists(count_mtx_path) && file.exists(CNA_mtx_path)) {
+    message("Reading sample: ", folder)
+    # Load the data
+    load(count_mtx_path)  # Loads count_mtx_annot
+    load(CNA_mtx_path)    # Loads CNA_mtx_relat
+    
+    all_data = cbind(count_mtx_annot, CNA_mtx_relat)
+    # Combine with the overall data frame
+    all_PDSC <- all_PDSC %>%
+      full_join(all_data, by = c("seqnames","start","end","gene_id","gene_name"))
+    
+  } else {
+    # Print a warning if files are missing
+    warning("Files not found for sample: ", sample_id)
+  }
+}
+
+all_PDSC = all_PDSC[,!(grepl("_t", colnames(all_PDSC)))]
+write.csv(all_PDSC,  "~/camino_sandbox/R_pipelines/CNV/CNV_final_results/Scevan_PDSC_cnratio.csv")
+########################## Prediction
+sample_dir <- "~/camino_sandbox/R_pipelines/CNV/SCEVAN_PDSC/"
+sample_ids = dir(sample_dir)
+sample_ids = sample_ids[grepl("hSC", sample_ids)]
+
+scevan_results = data.frame()
+
+for (ident in unique(sample_ids)) {
+    data <- read.csv(paste0("~/camino_sandbox/R_pipelines/CNV/SCEVAN_PDSC/", ident, "/","merge_results.csv"))
+    scevan_results <- rbind(scevan_results, data)
+    scevan_results = scevan_results[!grepl("_t_", scevan_results$Cell_barcodes),]
+    scevan_results
+  }
+}
+  
+############################# 2) COPYKAT #############################
+########################## CNRatio
+setwd("~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_PDSC/")
+
+sample_ids <- unique(PDSC$patient)
+
+summarize_results <- function(sample_ids) {
+  copykat <- NULL  # Initialize as NULL for proper merging
+  
+  for (ident in sample_ids) {
+    message("Reading ", ident)
+    
+    file_path <- paste0("~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_PDSC/", ident, "/", ident, "_copykat_results.rds")
+    
+    if (file.exists(file_path)) {  # Ensure the file exists before reading
+      data <- readRDS(file_path)
+      
+      if (!"prediction" %in% names(data)) {
+        message("Skipping ", ident, ": No 'prediction' in data")
+        next
+      }
+      
+      data <- data[["prediction"]]
+      
+      if (is.null(copykat)) {
+        copykat <- data  # Initialize with first dataset
+      } else {
+        copykat <- rbind(copykat, data)  # Append new data
+      }
+    } else {
+      message("Skipping ", ident, ": File not found")
+    }
+  }
+  copykat = copykat[!grepl("_t_", rownames(copykat)),]
+  colnames(copykat)=c("Cell_barcodes", "copykat.pred")
+  return(copykat)
+}
+
+data <- summarize_results(sample_ids)
+write.csv(data, "./PDSC_copykat_results.csv")
+
+
+## Get cna data
+copykat_PDSC_all_data <- data.frame(
+  chrom = numeric(),
+  chrompos = numeric(),
+  abspos = numeric(),
+  stringsAsFactors = FALSE
+)
+
+sample_ids = unique(PDSC_f$patient)
+
+for (sample_id in sample_ids) {
+  message("Reading sample: ", sample_id)
+  # Define file paths for the count matrix and CNA matrix
+  data = readRDS(paste0("~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_PDSC/", sample_id,"/",sample_id,"_copykat_results.rds"))
+  CNAmat = as.data.frame(data[["CNAmat"]])
+  CNAmat=CNAmat[,!grepl("_t_", colnames(CNAmat))]
+  # Combine with the overall data frame
+  copykat_PDSC_all_data <- copykat_PDSC_all_data %>%
+    full_join(CNAmat, by = c("chrom","chrompos","abspos"))
+}
+colnames(copykat_PDSC_all_data)<- gsub("\\.", "-", colnames(copykat_PDSC_all_data))
+
+write.csv(copykat_PDSC_all_data, "~/camino_sandbox/R_pipelines/CNV/CNV_final_results/copykat_PDSC_cnratio.csv")
+  
+############################# Prediction
+setwd("~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_PDSC/")
+sample_ids <- unique(PDSC_f$patient) 
+summarize_results <- function(sample_ids){
+  copykat = data.frame()
+  # copykat
+  for (ident in (unique(sample_ids))){
+    data = readRDS(paste0("~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_PDSC/", ident,"/", ident,"_copykat_results.rds"))
+    data = data[["prediction"]]
+    data$copykat.pred[data$copykat.pred == "aneuploid"] <- "aneuploid"
+    data$copykat.pred[data$copykat.pred == "diploid"] <- "diploid"
+    data$copykat.pred[data$copykat.pred == "no"] <- "no"
+    data = data[!grepl("_t_", rownames(data)),]
+    return(data)
+  }
+}
+data = summarize_results(sample_ids)
+write.csv(data, "~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_PDSC/PDSC_copykat_results.csv")
+
+### SCATOMIC
+
+base_path = c("~/camino_sandbox/R_pipelines/CNV/scatomic_PDSC//")
+file_list <- list.dirs(path = base_path, full.names = TRUE)
+
+# Initialize an empty data frame to store results
+scatomic_results= data.frame()
+
+# Loop through each directory in file_list
+for (i in file_list) {
+  # Get all .rds files in the current directory
+  rds_files <- list.files(path = i, pattern = "\\.rds$", full.names = TRUE)
+  
+  # Loop through each .rds file found in the directory
+  for (file_path in rds_files) {
+    # Read the file
+    data <- readRDS(file_path)  # No need for header in readRDS
+    
+    # Remove unwanted columns
+    data$nCount_RNA <- NULL
+    data$nFeature_RNA <- NULL
+    
+    # Combine the data with the existing results
+    scatomic_results <- dplyr::bind_rows(scatomic_results, data)
+  }
+  write.csv(scatomic_results, paste0(base_path, "scatomic_results.csv"), row.names = FALSE)
+}
+
+```

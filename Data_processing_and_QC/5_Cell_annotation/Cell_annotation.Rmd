@@ -154,19 +154,18 @@ DimPlot(Merge_data, cells.highlight = Cells(subset(ASPC, harmony_cluster.0.6 %in
 ```
 
 ```{r}
-ASPC$cell_type=ASPC$harmony_cluster.0.6
+ASPC$cell_type=ASPC$harmony_cluster.0.8
 
 # Map the cluster IDs to the new cell type annotations
 cell_type = c(
-  "0"="ASPC", "1"="ASPC", "2"="ASPC", "3"="ASPC", "4"="ASPC_C1QA",
-  "5"="ASPC", "6"="ASPC", "7"="ASPC", "8"="ASPC", "9"="ASPC",
-  "10"="ASPC", "11"="ASPC", "12"="ASPC", "13"="ASPC", "14"="ASPC",
-  "15"="ASPC_prolif", "16"="ASPC", "17"="ASPC", "18"="ASPC",
-  "19"="ASPC_preadipocyte", # APOE
-  "20"="remove", "21"="ASPC", "22"="ASPC", "23"="remove",
-  "24"="ASPC", "25"="ASPC", "26"="ASPC", "27"="ASPC", "28"="ASPC",
-  "29"="ASPC", "30"="Mesothelial", "31"="ASPC", "32"="ASPC",
-  "33"="ASPC", "34"="remove", "35"="remove", "36"="ASPC"
+  "0"="ASPC", "1"="ASPC", "10"="ASPC", "11"="ASPC", "12"="remove", 
+  "13"="ASPC", "14"="remove", "15"="ASPC", "16"="ASPC_prolif", 
+  "17"="remove", "18"="ASPC", "19"="ASPC", "2"="ASPC", "20"="ASPC", 
+  "21"="ASPC_preadipocyte", "22"="remove", "23"="ASPC", "24"="ASPC", 
+  "25"="remove", "26"="ASPC", "27"="ASPC", "28"="ASPC", "29"="ASPC", 
+  "3"="ASPC", "30"="ASPC", "31"="ASPC", "32"="Mesothelial", 
+  "33"="ASPC", "34"="ASPC", "35"="ASPC", "36"="remove", "37"="ASPC", 
+  "4"="ASPC", "5"="ASPC", "6"="ASPC", "7"="ASPC", "8"="ASPC", "9"="ASPC"
 )
 
 # Replace values in the metadata
@@ -771,15 +770,14 @@ DimPlot(Merge_data, cells.highlight = Cells(subset(Tcell, harmony_cluster.0.6 %i
 ```
 
 ```{r}
-Tcell$cell_type=Tcell$harmony_cluster.1.2
+Tcell$cell_type=Tcell$harmony_cluster.1.5
 
 # Map the cluster IDs to the new cell type annotations
 cell_type = c(
-  "0"="Tcell_CD4_helper", "1"="Tcell", "2"="Tcell_CD4_helper", "3"="Tcell", "4"="Tcell_CD8_effector",
-  "5"="Tcell_CD4_Treg", "6"="Tcell_CD8_effector", "7"="Tcell_CD8_effector", "8"="NK", "9"="Tcell_Cd8_cytotoxic",
-  "10"="Tcell_CD4_helper", "11"="NK", "12"="Tcell", "13"="NK", "14"="Tcell",
-  "15"="NK", "16"="Tcell_CD4_effector","17"="remove","18"="Tcell_CD4_Treg","19"="Tcell_CD4_helper","20"="Tcell_CD8_effector","21"="NK","22"="Tcell_CD8_effector","23"="Tcell","24"="Tcell_Cd8_cytotoxic","25"="remove")
-
+  "0"="Tcell_CD4_helper", "1"="Tcell", "2"="Tcell_CD4_helper", "3"="Tcell_CD8_effector", "4"="Tcell_CD8_effector",
+  "5"="Tcell_CD4_Treg", "6"="Tcell_CD8_effector", "7"="Tcell_CD8_effector", "8"="Tcell_CD4_helper", "9"="NK",
+  "10"="NKT", "11"="Tcell_CD4_helper", "12"="Tcell", "13"="NK", "14"="NK",
+  "15"="NK", "16"="remove","17"="Tcell_CD4_helper","18"="Tcell","19"="Tcell_CD4_Treg","20"="NK","21"="Tcell_CD4_helper","22"="Tcell_CD8_effector","23"="NK","24"="Tcell_CD8_effector","25"="Tcell","26"="Tcell","27"="NKT","28"="remove")
 # Replace values in the metadata
 # Assume the column in metadata is named "cell_label"
 Tcell@meta.data$cell_type <- as.character(cell_type[as.character(Tcell@meta.data$cell_type)])
@@ -1103,7 +1101,17 @@ cell_annotation = rbind(cell_annotation,cell_annotation_re)
 
 Merge_data$cell_type=cell_annotation
 DimPlot(Merge_data, group.by = "cell_type", label=T, label.size = 4, raster=F, reduction="umap.harmony")
-Merge_data$cell_type[is.na(Merge_data$cell_type)] <- "remove"
+
+metadata = Merge_data@meta.data
+metadata$cell_type[is.na(metadata$cell_type)] <- "remove"
+metadata$cell_type[metadata$cell_type == "ASPC_C1QA"] <- "remove" # remove remaining ASPC_c1QA (they are doublets)
+# Set cell type as "remove" for cells identified as doublets by either method
+metadata$cell_type[metadata$doublet_finder == "Doublet" & metadata$scDblFinder.class == "doublet"] <- "remove"
+metadata = metadata[Cells(Merge_data),]
+Merge_data@meta.data=metadata
+
 Merge_data_f = subset(Merge_data, cell_type %in% c("remove"), invert=T)
 DimPlot(Merge_data_f, group.by = "cell_type", label=T, label.size = 4, raster=F, reduction="umap.harmony")
+cell_annotation = as.data.frame(Merge_data$cell_type)
+write.csv(cell_annotation, "~/camino_sandbox.
 ```

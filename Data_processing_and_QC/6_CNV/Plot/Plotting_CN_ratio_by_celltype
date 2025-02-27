@@ -1,0 +1,75 @@
+
+
+#### Load function to plot CN_Ration by metadata ####
+
+process_and_plot_cn_ratio <- function(data_path, metadata, pattern) {
+  # Load required libraries
+  library(dplyr)
+  library(ggplot2)
+  library(reshape2)
+  
+  # Step 1: Load and preprocess data
+  data <- read.table(data_path, header = TRUE)
+
+  # Filter for chromosome 12
+  chr12_data <- data %>% filter(chrom == "12")
+  chr12_data$chrom <- NULL
+  chr12_data$abspos <- NULL
+  rownames(chr12_data) <- chr12_data$chrompos
+  chr12_data$chrompos <- NULL
+  
+  # Convert data to numeric matrix
+  chr12_data <- data.frame(lapply(chr12_data, as.numeric), row.names = rownames(chr12_data))
+  matrix_data <- as.matrix(chr12_data)
+  
+  # Step 2: Reshape data into long format
+  df_long <- melt(matrix_data, varnames = c("Position", "Cell"), value.name = "CN_ratio")
+  
+  # Step 3: Add metadata information
+  cell_metadata <- metadata %>% filter(grepl(pattern, metadata$Cell))
+  df_long$Cell <- gsub("\\.", "-", df_long$Cell)
+  df_long_with_metadata <- df_long %>%
+    left_join(cell_metadata, by = c("Cell" = "Cell"))
+  
+  colnames(df_long_with_metadata) <- c("Position", "Cell", "CN_ratio", "Cell_type")
+  
+  # Step 4: Calculate mean CN ratio by position and cell type
+  df_cn_position_celltype <- df_long_with_metadata %>%
+    group_by(Position, Cell_type) %>%
+    summarize(Mean_CNR = mean(CN_ratio, na.rm = TRUE))
+  
+  # Step 5: Plot mean CN ratio by position for each cell type
+  plot <- ggplot(df_cn_position_celltype, aes(x = Position, y = Mean_CNR, color = Cell_type)) +
+    geom_line() +  # Line plot to show CN ratio changes
+    geom_point() +  # Points to highlight individual positions
+    labs(x = "Chromosome 12 Position", y = "Mean CN Ratio", title = "CN Ratio along Chromosome 12 by Cell Type") +
+    theme_minimal() +
+    facet_wrap(~Cell_type)  # Separate plots for each cell type
+  
+  # Return the plot and processed data
+  list(
+    plot = plot,
+    df_long_with_metadata = df_long_with_metadata,
+    df_cn_position_celltype = df_cn_position_celltype
+  )
+}
+
+
+
+## EXAMPLE ##
+# Path to the data file
+data_path <- "~/camino_sandbox/R_pipelines/CNV/Copykat/Copykat_outputs_Endot/hSC26_ddLPS/_copykat_CNA_results.txt"
+
+# Example metadata dataframe (ensure it has 'Cell' and 'final_annotation' columns)
+metadata <- as.data.frame(Tumor_ASPC_T$cell_type)
+metadata$Cell <- rownames(metadata)
+
+# Call the function
+result <- process_and_plot_cn_ratio(data_path, metadata, pattern="hSC26")
+
+# View the plot
+print(result$plot)
+
+# Access the processed data
+head(result$df_long_with_metadata)
+head(result$df_cn_position_celltype)
