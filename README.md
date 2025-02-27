@@ -43,11 +43,13 @@ conda activate py_env
 ```
 -------------------------------------------------------------
 
-### Data_processing_and_QC
-  - [X] [1_Wrangling and Demultiplexing](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/1_Demultiplexing)
-  - [x] [2_QC](https://caminou.github.io/SARC_SC/QC/QC.html)  
-  - [X] [3_Ambient RNA removal and Doublet identification](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/3_Ambient_RNA_doublet)
-##### Data Integration
+## Analysis 
+#### Processing
+  - [X] 1. [Wrangling and Demultiplexing](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/1_Demultiplexing)
+#### QC
+  - [x] 2. [QC](https://caminou.github.io/SARC_SC/QC/QC.html)  
+  - [X] 3. [Ambient RNA removal and Doublet identification](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/3_Ambient_RNA_doublet)
+#### 4. Data Integration
   - [X] [Tumor biopsies](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/4_Integration)
     - [x] Harmony
     - [x] SCVI
@@ -60,32 +62,32 @@ conda activate py_env
     - [x] Harmony
     - [X] SCVI
     - [x] Wnn
-##### [Cell-type prediction and clean-up](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/5_Cell_annotation)
+#### 5. [Cell-type prediction and clean-up](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/5_Cell_annotation)
   - [X] Azimuth
   - [X] SCimilarity from HCA
-##### 6) [CNV for Tumor-cell identification](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/5_CNV)
+#### 6. [CNV for Tumor-cell identification](https://github.com/Caminou/SARC_SC/Data_processing_and_QC/5_CNV)
   - [X] Copykat
   - [X] SCEVAN
   - [X] InferCNV
   - [X] ScATOMIC
-##### 7) PDSC mapping and label transfer
+#### 7. PDSC mapping and label transfer
   - [X] Seurat label transfer
   - [X] Seurat mapping
-##### 7.1) CNV in PDSC cells using control Biopsy as control baseline
+#### 8. CNV in PDSC cells using control Biopsy as control baseline
   - [X] Copykat
   - [X] SCEVAN
   - [X] InferCNV
   - [X] ScATOMIC
-##### 8) Grouping tumor cells by MDM2 expression
+#### 9. Grouping tumor cells by MDM2 expression
   - [X] Gene signatures
   - [X] Cell proportion among patients 
-##### 8) DGE :tada:
+#### 10. DGE :tada:
   - [X] Tumor biopsy vs PDSC
   - [X] ASPC vs tumor cells
   - [X] MDM2 high vs MDM2 low
-##### 9) Cell-Cell interaction analysis
+#### 11. Cell-Cell interaction analysis
   - [ ] CellPhone
-##### 10) fGWAS
-##### 11) Spatial validation?
+#### 12. fGWAS
+#### 13. Spatial validation?
 
 
